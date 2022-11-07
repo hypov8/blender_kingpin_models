@@ -1,6 +1,4 @@
-# Blender Script for Kingpin
-
-This script is an importer and exporter for Kingpin Models (.md2 and .mdx)
+# Quake 2 and Kingpin .md2 .mdx import/export add-on for Blender
 
 Tested to work in blender 2.79, 2.80, 2.92, 3.2.1
 
@@ -22,7 +20,8 @@ Thanks to:
 -   Damien Thebault
 -   Erwan Mathieu
 -   Takehiko Nawata
-
+-   Daniel Salazar. AnimAll
+-   Patrick W. Crawford. theduckcow.com 2.7/2.8 support
 
 hypov8 plugin update log
 ========================
@@ -55,3 +54,6 @@ v1.2.2 (blender 2.79+2.80) sep 2022
 - 2.79. import textures using nodes
 - using blenders .obj addon as a base for mesh data
 
+v1.2.3 (blender 2.79+2.80) oct 2022
+- added animation toolbar, based on animall plugin. for editing shapekeys and vertex animation
+- importing of multiple selected models added
