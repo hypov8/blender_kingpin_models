@@ -55,5 +55,6 @@ v1.2.2 (blender 2.79+2.80) sep 2022
 - using blenders .obj addon as a base for mesh data
 
 v1.2.3 (blender 2.79+2.80) oct 2022
-- added animation toolbar, based on animall plugin. for editing shapekeys and vertex animation
+- added animation toolbar, based on animall plugin. for editing shape keys and vertex animation
 - importing of multiple selected models added
+- added new shape key import method.(absolute mode)
