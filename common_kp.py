@@ -2,9 +2,11 @@
 common_kp.py file
 
 File limitations
+blender compatability tools
 '''
 
 import bpy
+from timeit import default_timer as timer
 
 MD2_MAX_TRIANGLES = 4096
 MD2_MAX_VERTS = 2048
@@ -176,6 +178,18 @@ MD2_VN = (
     (-0.688191, -0.587785, -0.425325))
 
 
+def printProgress_fn(self, frame, total, prefix):
+    # Display the progress status in console
+    progressStatus = float(frame / total) * 100
+    if total < 50 or (frame % 20) == 0:
+        print("%-25s %6.2f%%\r" % (prefix + ":", progressStatus), end='')
+
+
+def printDone_fn(self, prefix):
+    # Display the progress status in console
+    print("%-25s 100%% Done. (%.2f sec)" % (prefix + ":", timer() - self.time))
+
+
 def get_preferences(context=None):
     ''' Multi version compatibility for getting preferences
     https://theduckcow.com/2019/update-addons-both-blender-28-and-27-support/#synved-sections-1-7
@@ -278,17 +292,6 @@ def set_mode_state(context, opt):
         context.mode_set(state=opt)  # B2.8
     else:
         context.mode = opt
-
-
-'''
-def set_uv_data(context, index, x, y):
-    if hasattr(context.data[index], "uv"):
-        # print("uv_1")
-        context.data[index].uv = (x, y)
-    else:
-        # print("uv_2")
-        context.data[index].uv = (x, y)
-        # context[index].uv = (x, y)'''
 
 
 def set_uv_array(context, index, x, y):

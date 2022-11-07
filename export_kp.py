@@ -13,8 +13,9 @@ import bmesh
 
 if "bpy" in locals():
     import importlib
-    if "common_kp" in locals():
-        importlib.reload(common_kp)
+    importlib.reload(common_kp)
+else:
+    from . import common_kp
 
 import bpy
 from bpy_extras.io_utils import ExportHelper
@@ -29,7 +30,6 @@ from .common_kp import (
     MD2_MAX_SKINS,
     MD2_MAX_SKINNAME,
     MD2_VN,
-    # get_uv_data,
 )
 
 
@@ -223,7 +223,7 @@ def printProgress_fn(self, frame, prefix):
 
 def printDone_fn(self, prefix):
     # Display the progress status in console
-    print("%-25s: 100%% Done. (%.2f sec)" % (prefix, timer() - self.time))
+    print("%-25s 100%% Done. (%.2f sec)" % (prefix + ":", timer() - self.time))
 
 
 def setupInternalArrays_fn(self, context):
@@ -807,8 +807,8 @@ def setup_data_fn(self, context):
     self.numFrames = 1 if not self.fExportAnimation else (1 + self.fEndFrame - self.fStartFrame)
     if self.numFrames > MD2_MAX_FRAMES:
         raise RuntimeError(
-            "There are too many frames (%i), at most %i are supported in md2"
-            % (info.frames, MD2_MAX_FRAMES))
+            "There are too many frames (%i), at most %i are supported in md2/mdx"
+            % (self.numFrames, MD2_MAX_FRAMES))
 
     getSkins_fn(self, self.objects, self.fTextureNameMethod)  # get texture names
     self.frameNames = buildFrameNames_fn(self)  # setup frame names

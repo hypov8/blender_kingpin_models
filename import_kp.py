@@ -14,6 +14,7 @@ from bpy.types import Operator  # B2.8
 from bpy_extras.io_utils import ImportHelper, unpack_list
 from bpy_extras.image_utils import load_image
 from math import pi
+from timeit import default_timer as timer
 from mathutils import (
     Matrix,
     Vector,
@@ -24,6 +25,8 @@ from mathutils import (
 
 from .common_kp import (
     MD2_VN,
+    printProgress_fn,
+    printDone_fn,
     get_collection,
     get_uv_data_new,
     get_objects,
@@ -31,15 +34,20 @@ from .common_kp import (
     set_uv_data_active,
     # set_uv_data,
     set_select_state,
+
 )
 
 
 class Kingpin_Model_Reader:
-
+    ''' Kingpin Model Reader '''
     def makeObject(self):
         if bpy.app.version >= (2, 80):  # nodes
             from bpy_extras import node_shader_utils
-        print("Generate mesh", end='')
+
+        self.time = timer()  # reset timmer
+        prefix = "Generating Mesh"
+        printProgress_fn(self, 0, self.numFrames, prefix)  # print progress
+
         int_frame = bpy.context.scene.frame_current
         bpy.context.scene.frame_set(0)
 
@@ -47,15 +55,24 @@ class Kingpin_Model_Reader:
         # 2.8 Create the mesh
         md2_mesh = bpy.data.meshes.new(self.name)
         md2_mesh.from_pydata(self.v_pos[0], [], self.tris)  # new 2.8 method
-        print('... Done')  # Finish mesh data
+        printDone_fn(self, prefix)  # Finish mesh data
 
         # ##########
         # skins data
         image_array = []
         if self.numSkins > 0:
-            print("Generate Materials.")
-            for skin in self.skins:
-                print("loading skin: %s" % skin, end='')  # print name
+            self.time = timer()  # reset timmer
+            prefix = ""
+            suffix = "Generating Materials"
+            # printProgress_fn(self, 0, prefix)  # print progress
+            print("========")
+            #      "Generate Materials:")
+            print("skins: %i" % len(self.skins))  # print count
+
+            for idx, skin in enumerate(self.skins):
+                # print("skin_%i: %s" % (idx + 1, skin), end='')  # print name
+                prefix = str("%s%s" % (prefix, skin))
+
                 mat_id = bpy.data.materials.new(skin)  # new material
                 md2_mesh.materials.append(mat_id)  # asign materal to mesh
 
@@ -87,28 +104,34 @@ class Kingpin_Model_Reader:
                 skinImg = loadImage(skin, self.filePath)  # KP_Util_Import
                 if skinImg is None:
                     skinImg = bpy.data.images.new(skin, self.skinWidth, self.skinHeight)
-                    print(" Missing")
+                    prefix = str("%s  Missing\n" % prefix)  # print(" Missing")
                 else:
-                    print(" OK")
+                    prefix = str("%s  OK\n" % prefix)  # print(" OK")
+                # TODO check duplicates?
                 # skinImg. mapping = 'UV' #2.7
                 skinImg.name = skin
                 image_array.append(skinImg)
 
                 # link image to diffuse color
                 node_tex.image = skinImg
-            # print(" ...Done")  # Finish skin data
+
+            # Materials Done
+            print(prefix, end='')
+            print("========")
+            printDone_fn(self, suffix)
 
         # #######
         # uv data
-        print('Generate UV.', end='')
-        uv_type, uv_layer = get_uv_data_new(md2_mesh, uv_name="UVMap_0")  # v1.2.2
+        self.time = timer()  # reset timmer
+        prefix = "Generating UV"
+        printProgress_fn(self, 0, self.numFrames, prefix)  # print progress
 
+        uv_type, uv_layer = get_uv_data_new(md2_mesh, uv_name="UVMap_0")  # v1.2.2
         image = None  # asign first image. TODO: cleanup
         for im in image_array:
             if (im is not None):
                 image = im
                 break
-
         if (uv_type == 1):  # B2.79 v1.2.2
             blen_uvs = md2_mesh.uv_layers[0]
             for i, pl in enumerate(md2_mesh.polygons):
@@ -126,103 +149,173 @@ class Kingpin_Model_Reader:
                 # dat = md2_mesh.uv_layers[0].data[i].image = imag
                 for uvid, (vert_idx, loop_idx) in enumerate(zip(face.vertices, face.loop_indices)):
                     uv_layer.data[loop_idx].uv = (self.uv_cords[uv_x[uvid]][0], self.uv_cords[uv_x[uvid]][1])
-        print('.. Done')  # Finish uv data
+        # Done.
+        printDone_fn(self, prefix)  # Finish uv data
 
         # validate/update model
         md2_mesh.validate()
         md2_mesh.update()
 
         # create new object from mesh
-        print('Generate object.', end='')
+        self.time = timer()  # reset timmer
+        prefix = "Generating Object"
+        printProgress_fn(self, 0, self.numFrames, prefix)  # print progress
+
         obj = bpy.data.objects.new(md2_mesh.name, md2_mesh)
         get_collection(bpy.context).link(obj)  # v1.2.2
         # select object
         set_select_state(context=obj, opt=True)  # 1.2.2
-        print(".. Done")
+        # Print Done.
+        printDone_fn(self, prefix)
 
         # ############
         # Animate mesh
         if (self.numFrames > 1) and not (self.fImportAnimation == 'NONE'):
+            self.time = timer()  # reset timmer
+            prefix = "Generating Frames"
+
             # setup shape keys
             sk_type = 0
+            sk_blocks = None
             sk_data = []
-            if (self.fImportAnimation == 'VERTEX'):  # todo get index?
+            obj_dat = obj.data
+            ob_verts = obj.data.vertices
+            # fCurvID = [None] * len(ob_verts)
+
+            if (self.fImportAnimation == 'SK_VERTEX'):
                 sk_type = 1
             elif (self.fImportAnimation == 'SK_SINGLE'):
                 sk_type = 2
             elif (self.fImportAnimation == 'SK_MULTI'):
                 sk_type = 3
+            elif (self.fImportAnimation == 'SK_ACTION'):
+                sk_type = 4
+            elif (self.fImportAnimation == 'SK_ABS'):
+                sk_type = 5
 
-            if sk_type > 1:  # use shape keys
+            #######################
+            # create key frames for vertex
+            if sk_type == 1:
+                '''ob_verts.foreach_set("co", unpack_list(self.v_pos[i]))
+                for k, vert in enumerate(ob_verts):
+                    vert.keyframe_insert(data_path="co", frame=i, group="V%s" % k)'''
+                obj_dat.animation_data_create()
+                obj_dat.animation_data.action = bpy.data.actions.new("KP_Anim")
+                obj_act = obj_dat.animation_data.action
+
+                for v in obj_dat.vertices:
+                    fcurves = [obj_act.fcurves.new(
+                        "vertices[%d].co" % v.index,
+                        index=i,
+                        action_group="V%s" % v.index) for i in range(3)]
+
+                    for i in range(3):
+                        fcurves[i].keyframe_points.add(self.numFrames)
+
+                    for fr in range(self.numFrames):
+                        v_co = self.v_pos[fr][v.index]
+                        for i in range(3):
+                            fcurves[i].keyframe_points[fr].co = fr, v_co[i]
+
+                    for i in range(3):
+                        fcurves[i].update()
+
+                    printProgress_fn(self, v.index, self.numVerts, prefix)  # print progress
+            ##########################
+            # animate single shape key
+            elif sk_type == 2:
                 sk_data.append(obj.shape_key_add(name="Base", from_mix=False))  # hy.new
-                sk_data.append(obj.shape_key_add(name=("SK_%i" % 0), from_mix=False))  # hy.new
+                sk_data.append(obj.shape_key_add(name="SK_0", from_mix=False))  # hy.new
                 obj.active_shape_key_index = 1
                 sk_data[1].value = 1.0
                 obj.use_shape_key_edit_mode = True
-                # obj.show_only_shape_key = True
+                sk_blocks = obj.data.shape_keys.key_blocks
 
-            # ####sk_data[1].relative_key = None
+                for i in range(self.numFrames):
+                    sk_data[1].data.foreach_set("co", unpack_list(self.v_pos[i]))
+                    for k, vert in enumerate(sk_data[1].data):
+                        vert.keyframe_insert(data_path="co", frame=i, group="SK_0 V: %s" % k)
 
-            if self.fAddTimeline:  # reset frame names
-                lastFName = ""
-                bpy.data.scenes[0].timeline_markers.clear()
-            sk_i = 1  # len(obj.data.shape_keys.key_blocks) - 1
-            for i in range(0, self.numFrames):
-                if sk_type == 1:  # animate vertex
-                    bpy.context.scene.frame_set(i)
-                    obj.data.vertices.foreach_set("co", unpack_list(self.v_pos[i]))
-                    obj.data.update()
-                    for k, vert in enumerate(obj.data.vertices):
-                        vert.keyframe_insert(data_path="co",
-                                             frame=i,
-                                             group="Vertex: %s" % k)
-                elif sk_type == 2:  # animate single shape key
-                    sk_data[sk_i].data.foreach_set("co", unpack_list(self.v_pos[i]))
-                    for k, vert in enumerate(sk_data[sk_i].data):
-                        vert.keyframe_insert(data_path="co",
-                                             frame=i,
-                                             group="sKey1 Vertex: %s" % k)
-                elif sk_type == 3:  # animate multiple shape keys
-                    bpy.context.scene.frame_set(i)
+            #############################
+            # animate multiple shape keys
+            elif sk_type == 3:
+                sk_data.append(obj.shape_key_add(name="Base", from_mix=False))  # hy.new
+                sk_data.append(obj.shape_key_add(name="SK_0", from_mix=False))  # hy.new
+                obj.active_shape_key_index = 1
+                sk_data[1].value = 1.0
+                obj.use_shape_key_edit_mode = True
+                sk_blocks = obj.data.shape_keys.key_blocks
+
+                sk_i = 1
+                for i in range(self.numFrames):
                     if i > 0:
                         sk_data.append(obj.shape_key_add(name=("SK_%i" % i), from_mix=False))
                         sk_i += 1
-                    sk_data[sk_i].data.foreach_set("co", unpack_list(self.v_pos[i]))
+                    sk_data[sk_i].data.foreach_set("co", unpack_list(self.v_pos[i]))  # move vertex
+                    # insert keys.
+                    if i > 0:  # dont add keys to <-1> frame
+                        sk_blocks[sk_i].value = 0.0
+                        sk_blocks[sk_i].keyframe_insert("value", frame=i - 1)
+                    sk_blocks[sk_i].value = 1.0
+                    sk_blocks[sk_i].keyframe_insert("value", frame=i)
+                    if i < (self.numFrames - 1):  # dont add keys to <last+1> frame
+                        sk_blocks[sk_i].value = 0.0
+                        sk_blocks[sk_i].keyframe_insert("value", frame=i + 1)
+                    printProgress_fn(self, i, self.numFrames, prefix)  # print progress
 
-                    obj.data.shape_keys.key_blocks[sk_i].value = 0.0
-                    obj.data.shape_keys.key_blocks[sk_i].keyframe_insert("value", frame=i - 1)
-                    obj.data.shape_keys.key_blocks[sk_i].value = 1.0
-                    obj.data.shape_keys.key_blocks[sk_i].keyframe_insert("value", frame=i)
-                    obj.data.shape_keys.key_blocks[sk_i].value = 0.0
-                    obj.data.shape_keys.key_blocks[sk_i].keyframe_insert("value", frame=i + 1)
-                    obj.data.update()
+            #############################
+            # absolute shape keys
+            elif sk_type == 5:
+                # isSetInter = 0 if self.filter_SK_Inter == 'NONE' else 1
+                for i in range(self.numFrames):
+                    # create shape key
+                    sk_data.append(obj.shape_key_add(name=("skFrame_%i" % i), from_mix=False))
+                    sk_data[i].data.foreach_set("co", unpack_list(self.v_pos[i]))  # move vertex
+                    # insert keyframe.
+                    obj.data.shape_keys.eval_time = (i * 10)  # 2.7 is buggy when you press Re-Time Shape Keys (+ 10)
+                    obj.data.shape_keys.keyframe_insert(data_path='eval_time', frame=i)
+                    # if (isSetInter):
+                    # obj.data.shape_keys.interpolation = self.filter_SK_Inter
+                    # obj.data.shape_keys.keyframe_insert(data_path='interpolation', frame=i)
+                    printProgress_fn(self, i, self.numFrames, prefix)  # print progress
 
-                # import frame names
-                if self.fAddTimeline:
-                    tmp_str = self.frame_names[i].rstrip(b'0123456789')
-                    if lastFName != tmp_str:
-                        bpy.data.scenes[0].timeline_markers.new(tmp_str.decode('utf-8'), frame=i)
+                obj.data.shape_keys.use_relative = False
+                obj.use_shape_key_edit_mode = True
+                obj.active_shape_key_index = 1  # updates display
+                # bpy.ops.object.shape_key_retime()  # fix values
+
+            ####################
+            # import frame names
+            if self.fAddTimeline:  # reset frame names
+                lastFName = ""
+                mark = bpy.data.scenes[0].timeline_markers
+                mark.clear()
+                fNames = self.frame_names
+                for i in range(self.numFrames):
+                    tmp_str = fNames[i].rstrip(b'0123456789')  # remove numbers
+                    if not (lastFName == tmp_str):
+                        mark.new(tmp_str.decode('utf-8'), frame=i)
                         lastFName = tmp_str
-
-                print("Animating mesh... %3i%%\r" % int(i / self.numFrames * 100), end='')
 
             # set sceen timeline to match imported model
             bpy.context.scene.frame_start = 0
             bpy.context.scene.frame_end = self.numFrames - 1
-
-            print("Animating mesh... Done")  # 100%")
+            obj.data.update()
+            # Frames Done
+            printDone_fn(self, prefix)
 
         # set frame back to old position
         bpy.context.scene.frame_set(int_frame)
 
         get_objects(bpy.context).active = obj  # v1.2.2
         get_layers(bpy.context).update()  # v1.2.2
-        print("Model imported.")
+        print("Model imported.\n" +
+              "===============================================")
 
-    def read(self, filePath):
+    def read_file(self, filePath):
         ''' open .md2 file and read contents '''
-        print()
         print("Reading %s" % filePath, end='')
+        startTime = timer()  # reset timmer
 
         self.filePath = filePath
         self.name = os.path.splitext(os.path.basename(filePath))[0]
@@ -235,16 +328,13 @@ class Kingpin_Model_Reader:
         self.v_norms = []   # vertex normal index
         self.frame_names = []
 
-        # if self.ext not ".md2" or self.ext not ".mdx":
-        #    return
-
         inFile = open(file=self.filePath, mode="rb")
         try:
             print('.', end='')
             if self.isMdx:
                 buff = inFile.read(struct.calcsize("<23i"))
                 data = struct.unpack("<23i", buff)
-                if data[0] != self.ident or data[1] != self.version:
+                if not (data[0] == self.ident) or not (data[1] == self.version):
                     raise NameError("Invalid MDX file")
                 self.skinWidth = max(1, data[2])
                 self.skinHeight = max(1, data[3])
@@ -264,7 +354,7 @@ class Kingpin_Model_Reader:
             else:
                 buff = inFile.read(struct.calcsize("<17i"))
                 data = struct.unpack("<17i", buff)
-                if data[0] != self.ident or data[1] != self.version:
+                if not (data[0] == self.ident) or not (data[1] == self.version):
                     raise NameError("Invalid MD2 file")
                 self.skinWidth = max(1, data[2])
                 self.skinHeight = max(1, data[3])
@@ -294,11 +384,15 @@ class Kingpin_Model_Reader:
                     dataEx1 = data[0].decode("utf-8", "replace")
                     dataEx1 = dataEx1 + "\x00"  # append null.
                     self.skins.append(asciiz(dataEx1))
-            print('.')  # #3
+            print('.')  # Done. #3
 
             # UV (software 1byte texture cords)
             if self.isMdx is False and self.numGLCmds <= 1:
-                print("Reading Software Vertex... ", end='')
+                #
+                self.time = timer()  # reset timmer
+                prefix = "Reading Software UV"
+                printProgress_fn(self, 0, self.numFrames, prefix)  # print progress
+
                 inFile.seek(self.ofsUV, 0)
                 for i in range(self.numUV):
                     buff = inFile.read(struct.calcsize("<2h"))
@@ -315,10 +409,14 @@ class Kingpin_Model_Reader:
                     data = struct.unpack("<6H", buff)
                     self.tris.append((data[0], data[2], data[1]))
                     self.tris_uv.append((data[3], data[5], data[4]))  # 2.8 seperate uv
-                print('Done')
+                # Done
+                printDone_fn(self, prefix)  # Reading SW Texture cords
 
             else:
-                print('Reading GLCommands... ', end='')
+                self.time = timer()  # reset timmer
+                prefix = "Reading GLCommands"
+                printProgress_fn(self, 0, self.numFrames, prefix)  # print progress
+
                 # =====================================================================================
                 # UV GLCommands (float texture cords)
                 inFile.seek(self.ofsGLCmds, 0)
@@ -378,11 +476,15 @@ class Kingpin_Model_Reader:
                             self.tris_uv.append((uvIdx - 1, uvIdx - 2, centreVert))
                     else:
                         break
-                print("Done")
+                # Done
+                printDone_fn(self, prefix)  # Reading GLCommands
                 # ===================================================================================
 
             # Frames
-            print("Reading Frames..", end='')
+            self.time = timer()  # reset timmer
+            prefix = "Reading Frames"
+            printProgress_fn(self, 0, self.numFrames, prefix)  # print progress
+            #
             inFile.seek(self.ofsFrames, 0)
             for i in range(self.numFrames):
                 buff = inFile.read(struct.calcsize("<6f16s"))
@@ -403,10 +505,12 @@ class Kingpin_Model_Reader:
                 tmp_str = data[6].split(b'\x00')
                 # tmp_str[0].decode('utf-8')
                 self.frame_names.append(tmp_str[0])  # frame names
-            print('.', end='')  # #3
+            printDone_fn(self, prefix)  # Reading Frames Done
         finally:
             inFile.close()
-        print(" Done")
+
+        self.timer = startTime
+        printDone_fn(self, "Reading File")
 
 
 def loadImage(mdxPath, filePath):
@@ -456,11 +560,12 @@ def load(self,
          *,
          fImportAnimation=False,
          fAddTimeline=False,
+         filter_SK_Inter=False,
          relpath=None
          ):
 
     ext = os.path.splitext(os.path.basename(filepath))[1]
-    if ext != '.md2' and ext != '.mdx':
+    if not (ext == '.md2') and not (ext == '.mdx'):
         raise RuntimeError("ERROR: Incorrect file extension. Only md2 or mdx")
         return False
     else:
@@ -468,6 +573,7 @@ def load(self,
         md2.object = None
         md2.fImportAnimation = fImportAnimation
         md2.fAddTimeline = fAddTimeline
+        md2.filter_SK_Inter = filter_SK_Inter
         if ext == '.mdx':
             md2.isMdx = True
             md2.ident = 1481655369
@@ -477,7 +583,7 @@ def load(self,
             md2.ident = 844121161
             md2.version = 8
 
-        md2.read(self.filepath)
+        md2.read_file(filepath)
         md2.makeObject()
 
         return True
