@@ -27,22 +27,22 @@ from .common_kp import (
     MD2_VN,
     printProgress_fn,
     printDone_fn,
-    get_collection,
+    get_contex_obj,
+    # get_collection,
     get_uv_data_new,
     get_objects,
     get_layers,
-    set_uv_data_active,
+    # set_uv_data_active,
     # set_uv_data,
     set_select_state,
-
 )
 
 
 class Kingpin_Model_Reader:
     ''' Kingpin Model Reader '''
     def makeObject(self):
-        if bpy.app.version >= (2, 80):  # nodes
-            from bpy_extras import node_shader_utils
+        # if bpy.app.version >= (2, 80):  # nodes
+        #    from bpy_extras import node_shader_utils
 
         self.time = timer()  # reset timmer
         prefix = "Generating Mesh"
@@ -56,6 +56,9 @@ class Kingpin_Model_Reader:
         md2_mesh = bpy.data.meshes.new(self.name)
         md2_mesh.from_pydata(self.v_pos[0], [], self.tris)  # new 2.8 method
         printDone_fn(self, prefix)  # Finish mesh data
+
+        print("num poly=%i" % (len(md2_mesh.polygons)))
+        print("num vert=%i" % (len(md2_mesh.vertices)))
 
         # ##########
         # skins data
@@ -95,7 +98,7 @@ class Kingpin_Model_Reader:
                 mat_links.new(node_diff.outputs['BSDF'], node_out_mat.inputs['Surface'])
                 mat_links.new(node_tex.outputs['Color'], node_diff.inputs['Color'])
 
-                if bpy.app.version < (2, 80):  # output blender render v2.79
+                if bpy.app.version < (2, 80, 0):  # output blender render v2.79
                     node_output = mat_nodes.new(type='ShaderNodeOutput')
                     mat_links.new(node_tex.outputs['Color'], node_output.inputs['Color'])
                     node_output.location = Vector((250, -120))
@@ -107,7 +110,7 @@ class Kingpin_Model_Reader:
                     prefix = str("%s  Missing\n" % prefix)  # print(" Missing")
                 else:
                     prefix = str("%s  OK\n" % prefix)  # print(" OK")
-                # TODO check duplicates?
+                # TODO .pcx loader
                 # skinImg. mapping = 'UV' #2.7
                 skinImg.name = skin
                 image_array.append(skinImg)
@@ -152,8 +155,15 @@ class Kingpin_Model_Reader:
         # Done.
         printDone_fn(self, prefix)  # Finish uv data
 
+        #######################
         # validate/update model
-        md2_mesh.validate()
+        if not self.ui_skip_cleanup:
+            err = md2_mesh.validate(verbose=True, clean_customdata=False)  # print errors
+            if err:
+                print("--------\n" +
+                      "WARNING: Found invalid mesh data. Disable Mesh Cleanup if required\n" +
+                      "--------\n")
+                self.valid = 2
         md2_mesh.update()
 
         # create new object from mesh
@@ -162,7 +172,7 @@ class Kingpin_Model_Reader:
         printProgress_fn(self, 0, self.numFrames, prefix)  # print progress
 
         obj = bpy.data.objects.new(md2_mesh.name, md2_mesh)
-        get_collection(bpy.context).link(obj)  # v1.2.2
+        get_contex_obj(bpy.context).link(obj)  # v1.2.2
         # select object
         set_select_state(context=obj, opt=True)  # 1.2.2
         # Print Done.
@@ -288,7 +298,7 @@ class Kingpin_Model_Reader:
             # import frame names
             if self.fAddTimeline:  # reset frame names
                 lastFName = ""
-                mark = bpy.data.scenes[0].timeline_markers
+                mark = bpy.data.scenes[0].timeline_markers  # TODO scene
                 mark.clear()
                 fNames = self.frame_names
                 for i in range(self.numFrames):
@@ -487,14 +497,16 @@ class Kingpin_Model_Reader:
             #
             inFile.seek(self.ofsFrames, 0)
             for i in range(self.numFrames):
+                # read frame headder
                 buff = inFile.read(struct.calcsize("<6f16s"))
                 data = struct.unpack("<6f16s", buff)
                 verts = []
                 norms = []
                 for j in range(self.numVerts):
+                    # read vertex pos+normIdx
                     buff = inFile.read(struct.calcsize("<4B"))
                     vert = struct.unpack("<4B", buff)
-                    verts.append((data[0] * vert[0] + data[3],
+                    verts.append((data[0] * vert[0] + data[3],  # scale * vert + min
                                   data[1] * vert[1] + data[4],
                                   data[2] * vert[2] + data[5]))
                     norms.append((MD2_VN[vert[3]][0],
@@ -516,10 +528,12 @@ class Kingpin_Model_Reader:
 def loadImage(mdxPath, filePath):
     fileName = os.path.basename(mdxPath)
 
-    image = load_image(fileName, dirname=os.path.dirname(mdxPath), recursive=False)
+    image = load_image(fileName, dirname=os.path.dirname(mdxPath), recursive=False,
+                       check_existing=True, force_reload=True)
     if image is not None:
         return image
-    image = load_image(fileName, dirname=os.path.dirname(filePath), recursive=False)
+    image = load_image(fileName, dirname=os.path.dirname(filePath), recursive=False,
+                       check_existing=True, force_reload=True)
     if image is not None:
         return image
 
@@ -527,6 +541,7 @@ def loadImage(mdxPath, filePath):
     idxModels = filePath.find("models" + os.sep)
     idxPlayer = filePath.find("players" + os.sep)
     idxTextur = filePath.find("textures" + os.sep)
+    # todo main/baseq2?
 
     if filePath[0] == os.sep:
         filePath = filePath[1:]
@@ -540,8 +555,8 @@ def loadImage(mdxPath, filePath):
 
     fullpath = filePath + mdxPath
     fullpath = bpy.path.native_pathsep(fullpath)
-    image = load_image(fileName, dirname=os.path.dirname(
-        fullpath), recursive=False)
+    image = load_image(fileName, dirname=os.path.dirname(fullpath), recursive=False,
+                       check_existing=True, force_reload=True)
     if image is not None:
         return image
 
@@ -561,19 +576,22 @@ def load(self,
          fImportAnimation=False,
          fAddTimeline=False,
          filter_SK_Inter=False,
-         relpath=None
+         relpath=None,
+         ui_skip_cleanup=False
          ):
 
     ext = os.path.splitext(os.path.basename(filepath))[1]
     if not (ext == '.md2') and not (ext == '.mdx'):
         raise RuntimeError("ERROR: Incorrect file extension. Only md2 or mdx")
-        return False
+        return 0
     else:
         md2 = Kingpin_Model_Reader()
         md2.object = None
         md2.fImportAnimation = fImportAnimation
         md2.fAddTimeline = fAddTimeline
+        md2.ui_skip_cleanup = ui_skip_cleanup
         md2.filter_SK_Inter = filter_SK_Inter
+        md2.self = self
         if ext == '.mdx':
             md2.isMdx = True
             md2.ident = 1481655369
@@ -583,7 +601,8 @@ def load(self,
             md2.ident = 844121161
             md2.version = 8
 
+        md2.valid = 1  # disable "done"
         md2.read_file(filepath)
         md2.makeObject()
 
-        return True
+        return md2.valid

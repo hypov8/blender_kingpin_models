@@ -266,12 +266,16 @@ def write_frame_fn(self, file, frame, frameName="frame"):
     # BL: some caching to speed it up:
     # -> sd_ gets the vertices between [0 and 255]
     #    which is our important quantization.
-    sdx = (max[0] - min[0]) / 255.0
-    sdy = (max[1] - min[1]) / 255.0
-    sdz = (max[2] - min[2]) / 255.0
-    isdx = float(255.0 / (max[0] - min[0])) if (max[2] - min[2]) != 0.0 else 0.0
-    isdy = float(255.0 / (max[1] - min[1])) if (max[2] - min[2]) != 0.0 else 0.0
-    isdz = float(255.0 / (max[2] - min[2])) if (max[2] - min[2]) != 0.0 else 0.0
+    xMax = max[0] - min[0]
+    yMax = max[1] - min[1]
+    zMax = max[2] - min[2]
+
+    sdx = xMax / 255.0
+    sdy = yMax / 255.0
+    sdz = zMax / 255.0
+    isdx = float(255.0 / xMax) if xMax != 0.0 else 0.0
+    isdy = float(255.0 / yMax) if yMax != 0.0 else 0.0
+    isdz = float(255.0 / zMax) if zMax != 0.0 else 0.0
 
     # note about the scale: self.object.scale is already applied via matrix_world
     data = struct.pack(
@@ -291,9 +295,9 @@ def write_frame_fn(self, file, frame, frameName="frame"):
             # write vertex pos and normal. (compressed position. 256 bytes)
             data = struct.pack(
                 '<4B',
-                int(((float(vert[0]) - min[0]) * isdx) + 0.5),
-                int(((float(vert[1]) - min[1]) * isdy) + 0.5),
-                int(((float(vert[2]) - min[2]) * isdz) + 0.5),
+                int(((vert[0] - min[0]) * isdx) + 0.5),
+                int(((vert[1] - min[1]) * isdy) + 0.5),
+                int(((vert[2] - min[2]) * isdz) + 0.5),
                 bestNormalIndex)
             file.write(data)  # write vertex and normal
         ofsetVertID += len(tmp_mesh[IDX_XYZ_V])
@@ -543,8 +547,8 @@ def getSkins_fn(self, objects, method):
             width = size[0]
             height = size[1]
             if not found:
-                outW = height
-                outH = width
+                outW = width
+                outH = height
                 found = True
             else:
                 if width > outW:

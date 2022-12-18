@@ -73,9 +73,15 @@ v1.2.2 (blender 2.79+2.80) sep 2022
 - using blenders .obj addon as a base for mesh data
 
 v1.2.3 (blender 2.79+2.80) oct 2022
-- added animation toolbar, based on animall plugin. for editing shapekeys and vertex animation
+- added animation toolbar, based on animall plugin. for editing shape keys and vertex animation
 - importing of multiple selected models added
 - added new shape key import method.(absolute mode)
+
+v1.2.4
+- added quake3 to kingpin player model cconverter
+- added kingpin tool to toolbar: Build grid. used to align vertex, for better exported model compresion
+- import image will no longer duplicate existing images
+- added a mesh driver function. so animated meshes can be split into sections
 
 
 notes
@@ -84,20 +90,31 @@ notes
     in Material click the 'New' button
     make sure 'use nodes' button is enabled
     Click the circle next to 'base color' and pick 'image texture'
-    click 'Open' to brows for texture file
+    click 'Open' to browse for texture file
+- using driver
+    if you have a cmplete mesh with animated data, you cant delets faces/vertex. so use this to re-animate
+    first set scene frame. preferabl frame 0
+    Duplicate mesh(the one that has the full animation)
+    on the duplicated mesh, remove all animation data (use button Clear Anim)
+    in edit mode, delete parts of the mesh you dont want.
+    in kp tools, select 'target'(the original mesh you cloned)
+    in kp tools, press 'Animate mesh'
+    if model was aligned properly, the closest vertex from target will drive vertex in the selected object/s
+    scrub through timeline to confirm animation. remove any 'modifiers' that may effect animation
 
 todo:
 - import. split model into mdx groups
-- interpolation selector. for import mesh
+- interpolation selector. for animated mesh import
 - import key reduction
+- pcx support
 '''
 
 
 bl_info = {
     "name": "Kingpin Models (md2, mdx)",
     "description": "Import/export Kingpin compatible model (md2/mdx)",
-    "author": "Update by Hypov8. See _init_.py for contributors",
-    "version": (1, 2, 3),
+    "author": "Update by HypoV8. See _init_.py for contributors",
+    "version": (1, 2, 4),
     "blender": (2, 80, 0),
     "location": "File > Import/Export > Kingpin Models",
     "warning": "",  # used for warning icon and text in addons panel
@@ -115,11 +132,17 @@ if "bpy" in locals():
     importlib.reload(export_kp)
     importlib.reload(animall_toolbar)
     importlib.reload(common_kp)
+    importlib.reload(q3_to_kp)
+    importlib.reload(tools)
 else:
-    from . import import_kp
-    from . import export_kp
-    from . import animall_toolbar
-    from . import common_kp
+    from . import (
+        import_kp,
+        export_kp,
+        animall_toolbar,
+        common_kp,
+        q3_to_kp,
+        tools
+    )
 
 import bpy
 from bpy.props import (
@@ -128,8 +151,9 @@ from bpy.props import (
     StringProperty,
     IntProperty,
     CollectionProperty,
+    PointerProperty,
 )
-from bpy.types import Operator  # B2.8
+from bpy.types import Operator
 from bpy_extras.io_utils import ExportHelper, ImportHelper  # , unpack_list, unpack_face_list
 
 from .common_kp import (
@@ -142,9 +166,13 @@ from .common_kp import (
     get_layers,
 )
 
+'''from .q3_to_kp import (
+    KINGPIN_Q3_to_KP_Properties,  # toolbar
+    KINGPIN_MD3_to_KP,
+)'''
 
-from .animall_toolbar import (
-    AnimallProperties_KP,
+'''from .animall_toolbar import (
+    AnimallProperties_KP,  # toolbar
     VIEW3D_PT_animall_KP,
     ANIM_OT_insert_keyframe_animall_KP,
     ANIM_OT_insert_keyframe_animall_all_KP,
@@ -154,7 +182,7 @@ from .animall_toolbar import (
     ANIM_OT_frame_prev_KP,
     ANIM_OT_frame_next_KP,
     ANIM_OT_frame_update_KP,
-)
+)'''
 
 
 if bpy.app.version < (2, 80):
@@ -166,8 +194,8 @@ class cls_KP_Import(bpy.types.Operator, ImportHelper):  # B2.8
     '''Import Kingpin format file (md2/mdx)'''
     bl_idname = "import_kingpin.mdx"
     bl_label = "Import Kingpin model (md2/mdx)"
-
     filename_ext = ".mdx"
+
     fImportAnimation = EnumProperty(
         name="",
         description="Import all frames",
@@ -209,6 +237,14 @@ class cls_KP_Import(bpy.types.Operator, ImportHelper):  # B2.8
     files = CollectionProperty(
         type=bpy.types.PropertyGroup
     )
+    ui_skip_cleanup = BoolProperty(
+        name="Skip checks",
+        description="Blender does some error checking on mesh before importing.\n"
+                    "This may delete some faces/vertex. "
+                    "Enabled: Stops any mesh validation checks.\n"
+                    "  Use if you find mesh is missing valuable data. Make sure you fix model before exporting",
+        default=True,
+    )
 
     def execute(self, context):
         from . import import_kp
@@ -228,25 +264,36 @@ class cls_KP_Import(bpy.types.Operator, ImportHelper):  # B2.8
             "filter_glob",
             "files",
         ))
+
+        # TODO
         if bpy.data.is_saved and get_preferences(context).filepaths.use_relative_paths:
             keywords["relpath"] = os.path.dirname(bpy.data.filepath)  # TODO..
 
-        # multiple file loader
+        # multiple 'selected' file loader
+        valid = 1
         folder = (os.path.dirname(self.filepath))
         for f in self.files:
             fPath = (os.path.join(folder, f.name))
             keywords["filepath"] = fPath
             print("===============================================")
-            if not import_kp.load(self, **keywords):
+            ret = import_kp.load(self, **keywords)
+            if ret == 2:
+                valid = 2  # stop print
+            if not ret:
                 print("Error: in %s" % fPath)
                 return {'FINISHED'}
 
         get_layers(bpy.context).update()  # v1.2.2
-        self.report({'INFO'}, "File '%s' imported" % self.filepath)
+        if valid == 1:
+            self.report({'INFO'}, "File '%s' imported" % self.filepath)
+        else:
+            self.report({'WARNING'}, "Warning: see console")
+
         return {'FINISHED'}
 
-    def draw(self, context):  # 2.8
+    def draw(self, context):
         layout = self.layout
+        layout.prop(self, "ui_skip_cleanup")
         layout.label(text="Import Animation Type:")
         layout.prop(self, "fImportAnimation")
         # show 'frame name' option when importing animation
@@ -324,12 +371,16 @@ class cls_KP_Export(bpy.types.Operator, ExportHelper):  # B2.8
                     "Default: disabled. This will create 1 large hitbox.",
         default=False)
     fIsPlayerModel = BoolProperty(
-        name="Fix seams (Player model)",  # fix seam
-        description="Use all visible sceen object to create a bounding box grid.\n" +
-                    "This fixes seam algment issues in player models, but adds wobble.\n" +
-                    "Show head, body, legs. Then export each selected part individually\n" +
-                    "Note: Only need for players with visable seams",
-        default=False)
+        name="Fix Seams (Player etc.)",  # fix seam
+        default=False,
+        description=(
+            "Fix 'multi-part' models that share a common seam.\n"
+            "This works by using all visable objects in the scene to generate a bbox (setup compresion grid)\n"
+            "Then each vertex will land on the correct position when loaded by the engine\n"
+            "This can reduce model rez/quality, so only use if needed\n"
+            "Usage: Show head, body, legs. Select each object(eg. head), then export head.mdx\n"
+        )
+    )
     fUseSharedBoundingBox = BoolProperty(
         name="Use shared bounding box",
         description="Calculate a shared bounding box from all frames.\n" +
@@ -426,35 +477,31 @@ def menu_func_import(self, context):
 classes = [
     cls_KP_Import,
     cls_KP_Export,
-    AnimallProperties_KP,
-    VIEW3D_PT_animall_KP,
-    ANIM_OT_insert_keyframe_animall_KP,
-    ANIM_OT_insert_keyframe_animall_all_KP,
-    ANIM_OT_delete_keyframe_animall_KP,
-    ANIM_OT_delete_keyframe_animall_all_KP,
-    ANIM_OT_clear_animation_animall_KP,
-    ANIM_OT_frame_prev_KP,
-    ANIM_OT_frame_next_KP,
-    ANIM_OT_frame_update_KP,
 ]
 
 
 def register():
+    animall_toolbar.register()
+    q3_to_kp.register()
+    tools.register()
     for cls in classes:
         make_annotations(cls)  # v1.2.2
         bpy.utils.register_class(cls)
-    bpy.types.WindowManager.animall_properties_KP = bpy.props.PointerProperty(type=AnimallProperties_KP)
+
     get_menu_export().append(menu_func_export)  # v1.2.2
     get_menu_import().append(menu_func_import)  # v1.2.2
 
 
 def unregister():
     # bpy.app.handlers.frame_change_post.remove(post_frame_change)
-    del bpy.types.WindowManager.animall_properties_KP
     get_menu_export().remove(menu_func_export)  # v1.2.2
     get_menu_import().remove(menu_func_import)  # v1.2.2
     for cls in classes:
         bpy.utils.unregister_class(cls)
+
+    q3_to_kp.unregister()
+    animall_toolbar.unregister()
+    tools.unregister()
 
 
 if __name__ == "__main__":
