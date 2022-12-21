@@ -44,13 +44,6 @@ IDX_I_UV = 7   # COUNT
 
 
 def getMeshArrays_fn(self, obj_group, frame, getUV, isPlayer=0):
-    def isDepsObj_aMatch(export_obj, sceene_obj):
-        ''' does object exist in Dependency graph'''
-        for obj in export_obj:
-            if obj.name == sceene_obj.name:
-                return True
-        return False
-
     # convert poly to tri
     def triangulateMesh_fn(self, object, depsgraph):
         me = None
@@ -163,30 +156,27 @@ def getMeshArrays_fn(self, obj_group, frame, getUV, isPlayer=0):
                 uv_unique_count)  # IDX_I_UV = 7 #COUNT
     # done... fillMeshArrays()
     ##########################
-
+    # TODO use common
     tmp_data = []
-    isBlen_28x = False
     if bpy.app.version >= (2, 80):  # B2.80
-        isBlen_28x = True
         depsgraph = bpy.context.evaluated_depsgraph_get()  # B2.8
-        for object_instance in depsgraph.object_instances:
-            obj = object_instance.object
-            if isDepsObj_aMatch(obj_group, obj):  # find matching objects
-                me, depMesh = triangulateMesh_fn(self, obj, depsgraph)
-                if me is None:
-                    continue
-                faceuv = uv_layer = None
-                if frame == 0 and getUV:
-                    faceuv = len(me.uv_layers) > 0
-                    if not faceuv:
-                        me.uv_layers.new()  # add uv map
-                        faceuv = True
-                    uv_layer = me.uv_layers.active.data[:]
-                # mesh array
-                tmp_data.append(
-                    fillMeshArrays(self, frame, me, faceuv, None, uv_layer))
-                # clean up
-                depMesh.to_mesh_clear()
+        for obj in obj_group:
+            obj = bpy.data.objects[obj.name].evaluated_get(depsgraph)
+            me, depMesh = triangulateMesh_fn(self, obj, depsgraph)
+            if me is None:
+                continue
+            faceuv = uv_layer = None
+            if frame == 0 and getUV:
+                faceuv = len(me.uv_layers) > 0
+                if not faceuv:
+                    me.uv_layers.new()  # add uv map
+                    faceuv = True
+                uv_layer = me.uv_layers.active.data[:]
+            # mesh array
+            tmp_data.append(
+                fillMeshArrays(self, frame, me, faceuv, None, uv_layer))
+            # clean up
+            depMesh.to_mesh_clear()
     else:  # B2.79
         for obj in obj_group:
             me, depMesh = triangulateMesh_fn(self, obj, None)

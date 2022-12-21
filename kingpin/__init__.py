@@ -78,7 +78,7 @@ v1.2.3 (blender 2.79+2.80) oct 2022
 - added new shape key import method.(absolute mode)
 
 v1.2.4
-- added quake3 to kingpin player model cconverter
+- added quake3 to kingpin player model converter
 - added kingpin tool to toolbar: Build grid. used to align vertex, for better exported model compresion
 - import image will no longer duplicate existing images
 - added a mesh driver function. so animated meshes can be split into sections
@@ -92,7 +92,7 @@ notes
     Click the circle next to 'base color' and pick 'image texture'
     click 'Open' to browse for texture file
 - using driver
-    if you have a cmplete mesh with animated data, you cant delets faces/vertex. so use this to re-animate
+    if you have a complete mesh with animated data, you cant delets faces/vertex. so use this to re-animate
     first set scene frame. preferabl frame 0
     Duplicate mesh(the one that has the full animation)
     on the duplicated mesh, remove all animation data (use button Clear Anim)
@@ -101,6 +101,22 @@ notes
     in kp tools, press 'Animate mesh'
     if model was aligned properly, the closest vertex from target will drive vertex in the selected object/s
     scrub through timeline to confirm animation. remove any 'modifiers' that may effect animation
+- Quake 3 .md3 conversion to Kingpin
+    Using the 'Quake 3 Model (.md3)-hy-' Import script.
+    Import lower.md3, upper.md3, head.md3 and shotgun.md3.
+    Option: Select the Leg Idle animations type(static/animated)
+    Option: Change the leg rotation angles(for running sidways)
+    Option: Change Crouch Death anim to use stand death anim 1/2/3.
+    Option: Change Scale to match a kingpin player model size.
+    Press the 'Animation.cfg' folder Button.
+    Select the .cfg file matching the imported Q3 models.
+    Hide any non Q3 scene objects.
+    Press the 'Convert to Kingpin' Button.
+    You can now export the head/body/legs models to Kingpin.
+    Note:
+    Animation.cfg may need tweeking to get the animations correct.
+    Death animations order are used based on time, to suit KP.
+
 
 todo:
 - import. split model into mdx groups
@@ -165,24 +181,6 @@ from .common_kp import (
     set_select_state,
     get_layers,
 )
-
-'''from .q3_to_kp import (
-    KINGPIN_Q3_to_KP_Properties,  # toolbar
-    KINGPIN_MD3_to_KP,
-)'''
-
-'''from .animall_toolbar import (
-    AnimallProperties_KP,  # toolbar
-    VIEW3D_PT_animall_KP,
-    ANIM_OT_insert_keyframe_animall_KP,
-    ANIM_OT_insert_keyframe_animall_all_KP,
-    ANIM_OT_delete_keyframe_animall_KP,
-    ANIM_OT_delete_keyframe_animall_all_KP,
-    ANIM_OT_clear_animation_animall_KP,
-    ANIM_OT_frame_prev_KP,
-    ANIM_OT_frame_next_KP,
-    ANIM_OT_frame_update_KP,
-)'''
 
 
 if bpy.app.version < (2, 80):

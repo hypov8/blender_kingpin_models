@@ -5,6 +5,7 @@ File limitations
 blender compatability tools
 '''
 
+from ast import excepthandler
 import bpy
 from timeit import default_timer as timer
 
@@ -587,33 +588,24 @@ def getMeshArrays_fn(self, obj_group=[], frame=0, getUV=True, isPlayer=0):
     tmp_data = []
 
     if bpy.app.version >= (2, 80):  # B2.80
-        def isDepsObj_aMatch(export_obj, sceene_obj):
-            ''' does object exist in Dependency graph'''
-            for obj in export_obj:
-                if obj.name == sceene_obj.name:
-                    return True
-            return False
-
-        depsgraph = bpy.context.evaluated_depsgraph_get()  # B2.8
-        for object_instance in depsgraph.object_instances:
-            obj = object_instance.object
-            if isDepsObj_aMatch(obj_group, obj):  # find matching objects
-                me, depMesh = triangulateMesh_fn(self, obj, depsgraph)
-                if me is None:
-                    continue
-                faceuv = uv_layer = None
-                if frame == 0 and getUV:
-                    faceuv = len(me.uv_layers) > 0
-                    if not faceuv:
-                        me.uv_layers.new()  # add uv map
-                        faceuv = True
-                    uv_layer = me.uv_layers.active.data[:]
-                # mesh array
-                tmp_data.append(
-                    fillMeshArrays(self, frame, me, faceuv, None, uv_layer)
-                )
-                # clean up
-                depMesh.to_mesh_clear()
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        for obj in obj_group:
+            obj = bpy.data.objects[obj.name].evaluated_get(depsgraph)
+            me, depMesh = triangulateMesh_fn(self, obj, depsgraph)
+            if me is None:
+                continue
+            faceuv = uv_layer = None
+            if frame == 0 and getUV:
+                faceuv = len(me.uv_layers) > 0
+                if not faceuv:
+                    me.uv_layers.new()  # add uv map
+                    faceuv = True
+                uv_layer = me.uv_layers.active.data[:]
+            # mesh array
+            tmp_data.append(
+                fillMeshArrays(self, frame, me, faceuv, None, uv_layer))
+            # clean up
+            depMesh.to_mesh_clear()
     else:  # B2.79
         for obj in obj_group:
             me, depMesh = triangulateMesh_fn(self, obj, None)
@@ -639,6 +631,9 @@ def getMeshArrays_fn(self, obj_group=[], frame=0, getUV=True, isPlayer=0):
     else:
         self.frameData.append(tmp_data)
     del tmp_data'''
+
+    if not len(tmp_data):
+        raise Exception("No mesh in array")
 
     return tmp_data
 # end getMeshArrays_fn
