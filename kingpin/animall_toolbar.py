@@ -12,8 +12,6 @@ Note: Use full 'AnimAll' plugin if you want full control.
       This light version is only suitable for an imported mesh via the kingpin script
 '''
 
-
-from ensurepip import version
 import bpy
 from bpy.types import (
     Operator,
