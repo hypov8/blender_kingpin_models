@@ -24,7 +24,8 @@ The frames are named <frameName><N> with :<br>
 - <frameName> the name choosen at the last marker
                 (or 'frame' if the last marker has no name or if there is no last marker)
 
-Skins can be set using image textures or materials. if it is longer than 63 characters it is truncated.
+Skins can be set using image textures or materials.
+    if it is longer than 63 characters it is truncated.
 
 Thanks to:
 -   DarkRain
@@ -73,15 +74,31 @@ v1.2.2 (blender 2.79+2.80) sep 2022
 - using blenders .obj addon as a base for mesh data
 
 v1.2.3 (blender 2.79+2.80) oct 2022
-- added animation toolbar, based on animall plugin. for editing shape keys and vertex animation
+- added animation toolbar, based on animall plugin.
+    for editing shape keys and vertex animation
 - importing of multiple selected models added
 - added new shape key import method.(absolute mode)
 
 v1.2.4
 - added quake3 to kingpin player model converter
-- added kingpin tool to toolbar: Build grid. used to align vertex, for better exported model compresion
+- added kingpin tool to toolbar: Build grid. used to align vertex,
+    for better exported model compresion
 - import image will no longer duplicate existing images
 - added a mesh driver function. so animated meshes can be split into sections
+
+v1.2.5
+- added high deff models. 2byte vertex, double vert/poly counts
+- updated animation tool to support collections at source
+- split up faces into 256 groups when building glcommands. speed boost but...
+
+v1.2.6
+- added 2 byte precision import/export
+- added pcx support
+- added mesh smooth tool. to try fix md2 compresion wobble. for HD export
+- fixed mesh grid to use proper context. compatable with older blender
+- removed unused libary
+- retarget animation now supports collections
+
 
 
 notes
@@ -92,18 +109,21 @@ notes
     Click the circle next to 'base color' and pick 'image texture'
     click 'Open' to browse for texture file
 - using driver
-    if you have a complete mesh with animated data, you cant delets faces/vertex. so use this to re-animate
+    if you have a complete mesh with animated data, you cant delets faces/vertex.
+        so use this to re-animate
     first set scene frame. preferabl frame 0
     Duplicate mesh(the one that has the full animation)
     on the duplicated mesh, remove all animation data (use button Clear Anim)
     in edit mode, delete parts of the mesh you dont want.
     in kp tools, select 'target'(the original mesh you cloned)
     in kp tools, press 'Animate mesh'
-    if model was aligned properly, the closest vertex from target will drive vertex in the selected object/s
-    scrub through timeline to confirm animation. remove any 'modifiers' that may effect animation
+    if model was aligned properly, the closest vertex from target
+        will drive vertex in the selected object/s
+    scrub through timeline to confirm animation. remove any 'modifiers'
+        that may effect animation
 - Quake 3 .md3 conversion to Kingpin
     Using the 'Quake 3 Model (.md3)-hy-' Import script.
-    Import lower.md3, upper.md3, head.md3 and shotgun.md3.
+    Import lower.md3, upper.md3, head.md3 and shotgun.md3. (multi select)
     Option: Select the Leg Idle animations type(static/animated)
     Option: Change the leg rotation angles(for running sidways)
     Option: Change Crouch Death anim to use stand death anim 1/2/3.
@@ -115,14 +135,18 @@ notes
     You can now export the head/body/legs models to Kingpin.
     Note:
     Animation.cfg may need tweeking to get the animations correct.
-    Death animations order are used based on time, to suit KP.
+    Death animations order is used based on Q3 duration, to suit KP.
 
 
 todo:
 - import. split model into mdx groups
 - interpolation selector. for animated mesh import
 - import key reduction
-- pcx support
+- extend hitbox with all scene objects(player seam)
+- optimize gl commands more. run fan first on verts with 6+ edges
+- md3 importer
+- export sets file name to mesh name?
+- q3toKP add jump variations
 '''
 
 
@@ -130,7 +154,7 @@ bl_info = {
     "name": "Kingpin Models (md2, mdx)",
     "description": "Import/export Kingpin compatible model (md2/mdx)",
     "author": "Update by HypoV8. See _init_.py for contributors",
-    "version": (1, 2, 4),
+    "version": (1, 2, 6),
     "blender": (2, 80, 0),
     "location": "File > Import/Export > Kingpin Models",
     "warning": "",  # used for warning icon and text in addons panel
@@ -166,11 +190,10 @@ from bpy.props import (
     EnumProperty,
     StringProperty,
     IntProperty,
-    CollectionProperty,
-    PointerProperty,
+    CollectionProperty
 )
-from bpy.types import Operator
-from bpy_extras.io_utils import ExportHelper, ImportHelper  # , unpack_list, unpack_face_list
+# from bpy.types import Operator
+from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from .common_kp import (
     MD2_MAX_FRAMES,
@@ -194,54 +217,78 @@ class cls_KP_Import(bpy.types.Operator, ImportHelper):  # B2.8
     bl_label = "Import Kingpin model (md2/mdx)"
     filename_ext = ".mdx"
 
-    fImportAnimation = EnumProperty(
-        name="",
+    ui_opt_store_pcx = BoolProperty(
+        name="Store .pcx Internaly",
+        description=(
+            "Loading .pcx files are not suported by blender.\n"+
+            "This will store the image into the blend file so it can be loaded.\n" +
+            "Note: you will need to manualy remove data to reduce file size later."),
+        default=True,
+    )
+    ui_opt_anim = BoolProperty(
+        name="Import Animations",
+        description="Import animation frame names to time line",
+        default=True,
+    )
+    ui_opt_anim_type = EnumProperty(
+        name="Type",
         description="Import all frames",
-        items=[('NONE', "None", "No animations", 0),  # force no animation
-               ('SK_VERTEX', "Vertex Keys", "Animate using vertex data", 1),
-               ('SK_ABS', "Shape Key (absolute)", "Use action graph for animations", 2),
-               # ('SK_SINGLE', "Shape Keys (Single)", "Animate using only 1 shape key", 3),
-               ('SK_MULTI', "Shape Keys (Multi)",
-                            "Add shape key's for every frame.\n" +
-                            "Import speed is faster, but mesh is harder to edit.\n" +
-                            "Note: this is the old plugin method.", 3)],
+        items=(
+            #('NONE', "None", "No animations", 0),  # force no animation
+            ('SK_VERTEX', "Vertex Keys", "Animate using vertex data", 1),
+            ('SK_ABS', "Shape Key (absolute)", "Use action graph for animations", 2),
+            # ('SK_SINGLE', "Shape Keys (Single)", "Animate using only 1 shape key", 3),
+            ('SK_MULTI', "Shape Keys (Multi)",
+             "Add shape key's for every frame.\n" +
+             "Import speed is faster, but mesh is harder to edit.\n" +
+             "Note: this is the old plugin method.", 3)
+        ),
         default="SK_VERTEX",
     )
-    fAddTimeline = BoolProperty(
+    ui_opt_frame_names = BoolProperty(
         name="Import Frame Names",
         description="Import animation frame names to time line\n" +
         "WARNING: Removes all existing marker frame names",
         default=False,
     )
+    ui_dupe_mat = BoolProperty(
+        name="Use Existing Material",
+        description="If material name exists, model will use the existing material",
+        default=True,
+    )
     filter_glob = StringProperty(
         default="*.md2;*.mdx",
         options={'HIDDEN'},
     )
+
+    '''
     # TODO SK_ABS Interpolation
-    # Linear, Cardinal, Catmull-Rom, B-Spline
-    filter_SK_Inter = EnumProperty(
+    ui_opt_sk_types = EnumProperty(
         name="key type",
         description="Import all frames",
-        items=[
+        items=(
             ('NONE', "None", "", 0),
             ('KEY_LINEAR', "Linear", "", 1),
             ('KEY_CARDINAL', "Cardinal", "", 2),
             ('KEY_CATMULL_ROM', "Catmull-Rom", "", 3),
             ('KEY_BSPLINE', "BSpline", "", 4),
-        ],
+        ),
         default="NONE",
+    )
+    '''
+    ui_skip_cleanup = BoolProperty(
+        name="Skip Mesh Cleanup",
+        description=(
+            "Blender does some error checking on mesh before importing.\n"
+            "This may delete some faces/vertex. "
+            "Enabled: Stops any mesh validation checks.\n"
+            "  Use if you find mesh is missing valuable data.\n" +
+            "  Make sure you fix model before exporting"),
+        default=False,
     )
     # Selected files
     files = CollectionProperty(
         type=bpy.types.PropertyGroup
-    )
-    ui_skip_cleanup = BoolProperty(
-        name="Skip checks",
-        description="Blender does some error checking on mesh before importing.\n"
-                    "This may delete some faces/vertex. "
-                    "Enabled: Stops any mesh validation checks.\n"
-                    "  Use if you find mesh is missing valuable data. Make sure you fix model before exporting",
-        default=True,
     )
 
     def execute(self, context):
@@ -252,7 +299,7 @@ class cls_KP_Import(bpy.types.Operator, ImportHelper):  # B2.8
         print("===============================================\n" +
               "Kingpin Model Importer v%i.%i.%i" % (ver[0], ver[1], ver[2]))
 
-        if not (bpy.context.mode == 'OBJECT'):
+        if not bpy.context.mode == 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')  # , toggle=False)
         # deselect any objects
         for ob in bpy.data.objects:
@@ -263,13 +310,12 @@ class cls_KP_Import(bpy.types.Operator, ImportHelper):  # B2.8
             "files",
         ))
 
-        # TODO
         if bpy.data.is_saved and get_preferences(context).filepaths.use_relative_paths:
             keywords["relpath"] = os.path.dirname(bpy.data.filepath)  # TODO..
 
         # multiple 'selected' file loader
         valid = 1
-        folder = (os.path.dirname(self.filepath))
+        folder = os.path.dirname(os.path.abspath(self.filepath))
         for f in self.files:
             fPath = (os.path.join(folder, f.name))
             keywords["filepath"] = fPath
@@ -291,19 +337,22 @@ class cls_KP_Import(bpy.types.Operator, ImportHelper):  # B2.8
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "ui_skip_cleanup")
-        layout.label(text="Import Animation Type:")
-        layout.prop(self, "fImportAnimation")
-        # show 'frame name' option when importing animation
-        if not (self.fImportAnimation == 'NONE'):
-            # TODO add key reduction option
-            # if not (self.fImportAnimation == 'NONE'):
-            #    sub = layout.row()
-            #    sub.prop(self, "filter_SK_Inter")
-            sub = layout.row()
-            sub.prop(self, "fAddTimeline")
-            if self.fAddTimeline:
-                layout.label(text="WARNING: Removes existing names")
+        #general options
+        miscBox = layout.box()
+        miscBox.prop(self, "ui_dupe_mat")
+        miscBox.prop(self, "ui_opt_store_pcx")
+        miscBox.prop(self, "ui_skip_cleanup")
+
+        # animation options
+        animBox = layout.box()
+        animBox.prop(self, "ui_opt_anim")
+        if self.ui_opt_anim:
+            animBox.prop(self, "ui_opt_anim_type")
+            # sub.prop(self, "ui_opt_sk_types")
+            # show 'frame name' option when importing animation
+            animBox.prop(self, "ui_opt_frame_names")
+            if self.ui_opt_frame_names:
+                animBox.label(text="WARNING: Removes existing names")
 
 
 class cls_KP_Export(bpy.types.Operator, ExportHelper):  # B2.8
@@ -312,87 +361,106 @@ class cls_KP_Export(bpy.types.Operator, ExportHelper):  # B2.8
     bl_label = "Export Kingpin Model (md2, mdx)"
     filename_ext = ".md2"  # md2 used later
 
-    # fTextureNameMethod: int
-
-    filter_glob = StringProperty(
-        default="*.md2;*.mdx",
-        options={'HIDDEN'})
-    fTextureNameMethod = EnumProperty(
+    # skin name selector
+    ui_opt_tex_name = EnumProperty(
         name="Skin",
         description="Skin naming method",
         items=(
-            ('SKIN_MAT_NAME',
-             "Material Name",
-                "Use material name for skin.\n" +
-                "Must include the file extension\n" +
-                "eg.. models/props/test.tga\n" +
-                "Image dimensions are sourced from nodes. 256 is use if no image exists"
-             ),
-            ('SKIN_TEX_NAME',
-             "Image Name",
-                "Use image name from Material nodes\n" +
-                "Must include the file extension\n" +
-                "\"material name\" will be used if no valid textures are found\n" +
-                "Image dimensions are sourced from nodes. 256 is use if no image exists"
-             ),
-            ('SKIN_TEX_PATH',
-             "Image Path",
-                "Use image path name from Material nodes\n" +
-                "Path must contain a folder models/ or players/ or textures/ \n" +
-                "\"material name\" will be used if no valid textures are found\n" +
-                "Image dimensions are sourced from nodes. 256 is use if no image exists"
-             ),
+            ('SKIN_MAT_NAME', "Material Name",
+             "Use material name for skin.\n" +
+             "Must include the file extension\n" +
+             "eg.. models/props/test.tga\n" +
+             "Image dimensions are sourced from nodes. 256 is use if no image exists"
+            ),
+            ('SKIN_TEX_NAME', "Image Name",
+             "Use image name from Material nodes\n" +
+             "Must include the file extension\n" +
+             "\"material name\" will be used if no valid textures are found\n" +
+             "Image dimensions are sourced from nodes. 256 is use if no image exists"
+            ),
+            ('SKIN_TEX_PATH', "Image Path",
+             "Use image path name from Material nodes\n" +
+             "Path must contain a folder models/ or players/ or textures/ \n" +
+             "\"material name\" will be used if no valid textures are found\n" +
+             "Image dimensions are sourced from nodes. 256 is use if no image exists"
+            ),
         ),
-        default='SKIN_MAT_NAME')
-    fExportAnimation = BoolProperty(
-        name="Export animation",
-        description="Export all animation frames.\n" +
-                    "Note: Start/End frame initially comes from timeline range.",
-        default=False)
-    fStartFrame = IntProperty(
-        name="Start Frame",
-        description="Animated model start frame",
-        min=0,
-        max=MD2_MAX_FRAMES - 1,
-        default=0)
-    fEndFrame = IntProperty(
-        name="End Frame",
-        description="Animated model end frame",
-        min=0,
-        max=MD2_MAX_FRAMES - 1,
-        default=40)
-    fSeparateHitbox = BoolProperty(
-        name="Player HitBox",
-        description="Use when exporting .mdx player models.\n" +
-                    "If multiple objects are selected, a separate hitbox is created for each object.\n" +
-                    "HitBox are used in multiplayer when \"dm_locational_damage 1\" is set on the server\n" +
-                    "Default: disabled. This will create 1 large hitbox.",
-        default=False)
-    fIsPlayerModel = BoolProperty(
-        name="Fix Seams (Player etc.)",  # fix seam
-        default=False,
-        description=(
-            "Fix 'multi-part' models that share a common seam.\n"
-            "This works by using all visable objects in the scene to generate a bbox (setup compresion grid)\n"
-            "Then each vertex will land on the correct position when loaded by the engine\n"
-            "This can reduce model rez/quality, so only use if needed\n"
-            "Usage: Show head, body, legs. Select each object(eg. head), then export head.mdx\n"
-        )
+        default='SKIN_MAT_NAME'
     )
-    fUseSharedBoundingBox = BoolProperty(
-        name="Use shared bounding box",
-        description="Calculate a shared bounding box from all frames.\n" +
-                    "Used to avoid wobble in static vertices but wastes resolution",
-        default=False)
-    fApply_modifiers = BoolProperty(  # TODO
+    # misc options
+    ui_opt_apply_modify = BoolProperty(
         name="Apply Modifiers",
         description="Apply Modifiers or use the original base mesh",
-        default=True)
-
+        default=True
+    )
+    ui_opt_is_hd = BoolProperty(
+        name="HD Version",
+        description=("Export HD version. Backward compatable with engine and some viewers.\n" +
+                     "Needs MH patch to view. without the wobble :)\n" +
+                     "Rember to store files in main/hires/models folders."),
+        default=True
+    )
+    ui_opt_cust_vn = BoolProperty(
+        name="Custom Vertex Normals",
+        description=(
+            "Use custom vertex normals instead of average normal.\n" +
+            "Normals should be combined so each vertex has only 1 direction.\n"+
+            "Note: Vertex are not split on hard edges."),
+        default=True
+    )
+    ui_opt_is_player = BoolProperty(
+        name="Seam Fix (Player etc.)",
+        description=(
+            "Fix 'multi-part' models that share a common seam.\n"
+            "This works by using all visable objects in the scene to generate a bbox (shared 256 grid)\n"
+            "Each model will use a common grid for compression, so vertex location will match.\n"
+            "This can reduce model rez/quality, so only use when needed\n"
+            "Usage: Show head, body, legs. Select each object(eg. head), then export(eg. head.mdx)"),
+        default=False,
+    )
+    # animation group
+    ui_opt_animated = BoolProperty(
+        name="Export animation",
+        description=("Export all animation frames.\n" +
+                     "Note: Start/End frame initially comes from timeline range."),
+        default=False
+    )
+    ui_opt_fr_start = IntProperty(
+        name="Start Frame",
+        description="Animated model start frame",
+        min=0, max=MD2_MAX_FRAMES - 1,
+        default=0
+    )
+    ui_opt_fr_end = IntProperty(
+        name="End Frame",
+        description="Animated model end frame",
+        min=0, max=MD2_MAX_FRAMES - 1,
+        default=40
+    )
+    ui_opt_use_hitbox = BoolProperty(
+        name="Player HitBox",
+        description=(
+            "Use when exporting .mdx player models.\n" +
+            "If multiple objects are selected, a separate hitbox is created for each object.\n" +
+            "HitBox are used in multiplayer when \"dm_locational_damage 1\" is set on the server\n" +
+            "Default: disabled. This will create 1 large hitbox."),
+        default=False
+    )
+    ui_opt_share_bbox = BoolProperty(
+        name="Shared Bounding Box",
+        description=(
+            "Calculate a shared bounding box from all frames.\n" +
+            "Used to avoid wobble in static vertices but wastes resolution"),
+        default=False
+    )
+    # blender default options
+    filter_glob = StringProperty(
+        default="*.md2;*.mdx",
+        options={'HIDDEN'}
+    )
     check_extension = False  # 2.8 allow typing md2/mdx
 
     def execute(self, context):
-        print("__execute kp__")
         from .export_kp import Export_MD2_fn
         # print headder
         ver = bl_info.get("version")
@@ -416,14 +484,16 @@ class cls_KP_Export(bpy.types.Operator, ExportHelper):  # B2.8
         keywords = self.as_keywords(ignore=(
             'filter_glob',
             'check_existing',
-            'fExportAnimation',
-            'fIsPlayerModel',
-            'fUseSharedBoundingBox',
-            'fSeparateHitbox',
-            'fTextureNameMethod',
-            'fStartFrame',
-            'fEndFrame',
-            'fApply_modifiers',
+            'ui_opt_animated',
+            'ui_opt_is_player',
+            'ui_opt_share_bbox',
+            'ui_opt_use_hitbox',
+            'ui_opt_tex_name',
+            'ui_opt_fr_start',
+            'ui_opt_fr_end',
+            'ui_opt_apply_modify',
+            'ui_opt_is_hd',
+            'ui_opt_cust_vn',
         ))
 
         Export_MD2_fn(self, context, **keywords)
@@ -432,21 +502,35 @@ class cls_KP_Export(bpy.types.Operator, ExportHelper):  # B2.8
         for obj in self.objects:
             set_select_state(context=obj, opt=True)
 
+        print("=======================")
         return {'FINISHED'}
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "fTextureNameMethod")  # testure source (dropdown)
-        layout.prop(self, "fExportAnimation")   # export animation
-        sub = layout.column()
-        sub.enabled = self.fExportAnimation
-        sub.prop(self, "fStartFrame")           # frame start number
-        sub.prop(self, "fEndFrame")             # frame end number
-        layout.prop(self, "fSeparateHitbox")    # merge hitbox
-        layout.prop(self, "fIsPlayerModel")     # playermodel
-        if not self.fIsPlayerModel and self.fExportAnimation:
-            sub2 = layout.column()
-            sub2.prop(self, "fUseSharedBoundingBox")
+        # skin chooser box
+        # miscBox = layout.box()
+        layout.prop(self, "ui_opt_tex_name")  # testure source (dropdown)
+
+        # animation box
+        animBox = layout.box()
+        animBox.prop(self, "ui_opt_animated")   # export animation
+        sub = animBox.column()
+        sub.enabled = self.ui_opt_animated
+        sub.prop(self, "ui_opt_fr_start")           # frame start number
+        sub.prop(self, "ui_opt_fr_end")             # frame end number
+        if not self.ui_opt_is_player and self.ui_opt_animated:
+            # sub2 = layout.column()
+            animBox.prop(self, "ui_opt_share_bbox")
+
+        # misc options box
+        miscBox = layout.box()
+        miscBox.prop(self, "ui_opt_apply_modify")  # apply movifiers
+        if self.ui_opt_apply_modify:
+            miscBox.prop(self, "ui_opt_cust_vn")   # custom vertex normals
+        miscBox.prop(self, "ui_opt_is_hd")         # HD version
+        miscBox.prop(self, "ui_opt_use_hitbox")    # merge hitbox
+        miscBox.prop(self, "ui_opt_is_player")     # playermodel
+
 
     def invoke(self, context, event):
         print("__invoke kp__")
@@ -454,8 +538,8 @@ class cls_KP_Export(bpy.types.Operator, ExportHelper):  # B2.8
             self.report({'ERROR'}, "Please, select an object to export!")
             return {'CANCELLED'}
 
-        self.fStartFrame = context.scene.frame_start
-        self.fEndFrame = context.scene.frame_end
+        self.ui_opt_fr_start = context.scene.frame_start
+        self.ui_opt_fr_end = context.scene.frame_end
 
         wm = context.window_manager
         wm.fileselect_add(self)
@@ -474,7 +558,7 @@ def menu_func_import(self, context):
 
 classes = [
     cls_KP_Import,
-    cls_KP_Export,
+    cls_KP_Export
 ]
 
 
@@ -491,7 +575,6 @@ def register():
 
 
 def unregister():
-    # bpy.app.handlers.frame_change_post.remove(post_frame_change)
     get_menu_export().remove(menu_func_export)  # v1.2.2
     get_menu_import().remove(menu_func_import)  # v1.2.2
     for cls in classes:
