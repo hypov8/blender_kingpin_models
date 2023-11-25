@@ -1,28 +1,12 @@
 '''
-exporter class/func
+md2/mdx exporter
 
 '''
-import time  # debug
-from timeit import default_timer as timer
 
-import math
+
 import os
 import struct
-import bmesh
-# import shutil
-
-if "bpy" in locals():
-    import importlib
-    importlib.reload(common_kp)
-else:
-    from . import common_kp
-
 import bpy
-from bpy_extras.io_utils import ExportHelper
-# from math import pi
-from mathutils import Matrix, Euler
-
-
 from .common_kp import (
     MD2_MAX_TRIANGLES,
     MD2_MAX_VERTS,
@@ -30,223 +14,66 @@ from .common_kp import (
     MD2_MAX_SKINS,
     MD2_MAX_SKINNAME,
     MD2_VN,
+    MDX5_MAX_TRIANGLES,
+    MDX5_MAX_VERTS,
+    IDX_IDC_V,
+    IDX_IDC_UV,
+    IDX_XYZ_V,
+    IDX_XYZ_VN,
+    IDX_XY_UV,
+    IDX_I_FACE,
+    IDX_I_VERT,
+    IDX_I_UV,
+    printStart_fn,
+    printProgress_fn,
+    printDone_fn,
+    getMeshArrays_fn
+    # MDX5_VERSION
 )
 
 
-IDX_IDC_V = 0   # indices
-IDX_IDC_UV = 1  # indices
-IDX_XYZ_V = 2   # xyz
-IDX_XYZ_VN = 3  # xyz
-IDX_XY_UV = 4   # XY
-IDX_I_FACE = 5   # COUNT
-IDX_I_VERT = 6   # COUNT
-IDX_I_UV = 7   # COUNT
-
-
-def getMeshArrays_fn(self, obj_group, frame, getUV, isPlayer=0):
-    # convert poly to tri
-    def triangulateMesh_fn(self, object, depsgraph):
-        me = None
-        depMesh = None
-        if bpy.app.version >= (2, 80):  # B2.8
-            depMesh = object.evaluated_get(depsgraph)
-            try:
-                if self.fApply_modifiers:
-                    me = depMesh.to_mesh()
-                else:
-                    me = depMesh.original.to_mesh()
-            except RuntimeError:
-                depMesh.to_mesh_clear()
-                return None
-            # if not me.loop_triangles and me.polygons:
-            #     me.calc_loop_triangles()
-        else:  # B2.79
-            try:
-                me = object.to_mesh(
-                    bpy.context.scene,
-                    self.fApply_modifiers,
-                    calc_tessface=False,
-                    settings='PREVIEW')  # 'RENDER' 'PREVIEW')
-            except RuntimeError:
-                return None  # return None
-            # mesh.calc_tessface()
-
-        bm = bmesh.new()
-        bm.from_mesh(me)
-        bmesh.ops.triangulate(bm, faces=bm.faces)  # triaglulate
-        bm.to_mesh(me)
-        bm.free()
-
-        me.transform(object.matrix_world)
-        if object.matrix_world.determinant() < 0.0:
-            me.flip_normals()
-            print("Note: transform is negative, normals fliped")
-
-        return me, depMesh
-    # done getMeshArrays_fn()
-
-    def fillMeshArrays(self, frame, me, faceuv, uv_texture, uv_layer):
-        def roundVec(v):
-            # return float(v[0]), float(v[1]), float(v[2])
-            return round(v[0], 6), round(v[1], 6), round(v[2], 6)
-
-        # Make our own list so it can be sorted to reduce context switching
-        face_index_pairs = [(face, index) for index, face in enumerate(me.polygons)]
-        me_verts = me.vertices[:]  # get vert array
-        me.calc_normals_split()
-        loops = me.loops
-
-        # counters
-        face_count = len(me.polygons)
-        vert_count = len(me_verts)
-
-        tmp_idc_vert = []  # * (face_count * 3)  # IDX_IDC_V = 0   # indices
-        tmp_idc_uv = []  # * (face_count * 3)    # IDX_IDC_UV = 1  # indices
-        tmp_XYZ_vert = []  # * vert_count        # IDX_XYZ_V = 2   # xyz
-        tmp_XYZ_norm = []  # * vert_count        # IDX_XYZ_VN = 3  # xyz
-        tmp_XY_uv = []                         # IDX_XY_UV = 4   # XY
-
-        # mats. TODO not needed?
-        ''' if faceuv: '''
-
-        # Vert
-        for i, v in enumerate(me_verts):
-            tmp_XYZ_vert.append(v.co[:])   # XYZ float
-            tmp_XYZ_norm.append(v.normal[:])  # XYZ float
-
-        # UV
-        uv_unique_count = 0  # IDX_I_UV
-        if faceuv:
-            uv = f_index = uv_index = uv_key = uv_val = uv_ls = None
-            uv_face_mapping = [None] * len(face_index_pairs)
-            uv_dict = {}
-            uv_get = uv_dict.get
-            for f, f_index in face_index_pairs:
-                uv_ls = uv_face_mapping[f_index] = []
-                for uv_index, l_index in enumerate(f.loop_indices):
-                    uv = uv_layer[l_index].uv
-                    uv_key = loops[l_index].vertex_index, (uv[0], uv[1])
-                    uv_val = uv_get(uv_key)
-                    if uv_val is None:
-                        uv_val = uv_dict[uv_key] = uv_unique_count
-                        tmp_XY_uv.append((uv[0], uv[1]))  # XY float
-                        uv_unique_count += 1
-                    uv_ls.append(uv_val)
-            del uv_dict, uv, f_index, uv_index, uv_ls, uv_get, uv_key, uv_val
-            # Only need uv_unique_count and uv_face_mapping
-
-        # vertex indicies
-        for f, f_index in face_index_pairs:
-            f_v = [(vi, me_verts[v_idx], l_idx)
-                   for vi, (v_idx, l_idx) in enumerate(zip(f.vertices, f.loop_indices))]
-
-            for i, (vi, v, li) in enumerate(f_v):
-                tmp_idc_vert.append(v.index)  # vert (indices)
-                if faceuv:
-                    tmp_idc_uv.append(uv_face_mapping[f_index][vi])  # uv (indices)
-
-        # ###### end ###### #
-        return (tmp_idc_vert,  # IDX_IDC_V = 0   # indices
-                tmp_idc_uv,    # IDX_IDC_UV = 1  # indices
-                tmp_XYZ_vert,  # IDX_XYZ_V = 2   # xyz
-                tmp_XYZ_norm,  # IDX_XYZ_VN = 3  # xyz
-                tmp_XY_uv,     # IDX_XY_UV = 4   # XY
-                face_count,    # IDX_I_FACE = 5  # COUNT
-                vert_count,    # IDX_I_VERT = 6  # COUNT
-                uv_unique_count)  # IDX_I_UV = 7 #COUNT
-    # done... fillMeshArrays()
-    ##########################
-    # TODO use common
-    tmp_data = []
-    if bpy.app.version >= (2, 80):  # B2.80
-        depsgraph = bpy.context.evaluated_depsgraph_get()  # B2.8
-        for obj in obj_group:
-            obj = bpy.data.objects[obj.name].evaluated_get(depsgraph)
-            me, depMesh = triangulateMesh_fn(self, obj, depsgraph)
-            if me is None:
-                continue
-            faceuv = uv_layer = None
-            if frame == 0 and getUV:
-                faceuv = len(me.uv_layers) > 0
-                if not faceuv:
-                    me.uv_layers.new()  # add uv map
-                    faceuv = True
-                uv_layer = me.uv_layers.active.data[:]
-            # mesh array
-            tmp_data.append(
-                fillMeshArrays(self, frame, me, faceuv, None, uv_layer))
-            # clean up
-            depMesh.to_mesh_clear()
-    else:  # B2.79
-        for obj in obj_group:
-            me, depMesh = triangulateMesh_fn(self, obj, None)
-            if me is None:
-                continue
-            faceuv = uv_texture = uv_layer = None
-            if frame == 0 and getUV:
-                faceuv = len(me.uv_textures) > 0
-                if not faceuv:
-                    me.uv_textures.new()  # add uv map
-                    faceuv = True
-                uv_texture = me.uv_textures.active.data[:]
-                uv_layer = me.uv_layers.active.data[:]
-            # mesh array
-            tmp_data.append(
-                fillMeshArrays(self, frame, me, faceuv, uv_texture, uv_layer))
-            # clean up
-            bpy.data.meshes.remove(me)
-    # frame array
-    if isPlayer:
-        self.frameDataBBox.append(tmp_data)
-    else:
-        self.frameData.append(tmp_data)
-    del tmp_data
-# end getMeshArrays_fn
-
-
-def printProgress_fn(self, frame, prefix):
-    # Display the progress status in console
-    progressStatus = float(frame / self.numFrames) * 100
-    if self.numFrames < 50 or (frame % 20) == 0:
-        print("%-25s: %6.2f%%\r" % (prefix, progressStatus), end='')
-
-
-def printDone_fn(self, prefix):
-    # Display the progress status in console
-    print("%-25s 100%% Done. (%.2f sec)" % (prefix + ":", timer() - self.time))
-
-
-def setupInternalArrays_fn(self, context):
+def setupInternalArrays_fn(self):
     '''get selected mesh data and store
        also store all viewable mesh for player models
     '''
-    self.time = timer()  # reset timmer
+    self.start_time = printStart_fn()  # reset timmer
     obj_sel = self.objects
     obj_vis = self.objectsVis
     scene = bpy.context.scene
-    prefix = "Getting mesh data "
+    start_frame = self.ui_opt_fr_start
+    custom_vn = self.ui_opt_cust_vn
+    apply_modifyer = self.ui_opt_apply_modify
+    is_player = self.ui_opt_is_player or self.ui_opt_share_bbox
+
+    prefix = "Getting mesh data"
     for frame in range(self.numFrames):
-        printProgress_fn(self, frame, prefix)  # print progress
+        if self.numFrames < 50 or (frame % 20) == 0:
+            printProgress_fn(frame, self.numFrames, prefix)  # print progress
+
         # --------------------------------------------
         # TODO find why this is taking lots of time...
         # 5 seconds with no items to seek 700 frames
-        frameIdx = self.fStartFrame + frame
+        frameIdx = start_frame + frame
         scene.frame_set(frameIdx)
         # --------------------------------------------
+        self.frameData.append(
+            getMeshArrays_fn(
+                obj_sel,
+                getUV=1 if frame == 0 else 0, # ignore uv for animated frames
+                apply_modifyer=apply_modifyer,
+                custom_vn=custom_vn)
+        )
+        if is_player:
+            # get all visable scene ebjects for bbox
+            self.frameDataBBox.append(getMeshArrays_fn(obj_vis))
 
-        getUV = 1 if (frame == 0) else 0  # ignore uv for animated frames
-
-        getMeshArrays_fn(self, obj_sel, frame, getUV, isPlayer=0)
-        if self.fIsPlayerModel or self.fUseSharedBoundingBox:  # option
-            getMeshArrays_fn(self, obj_vis, frame, 0, isPlayer=1)
-
-    printDone_fn(self, prefix)  # Done.
+    printDone_fn(self.start_time, prefix)  # Done.
 # end setupInternalArrays_fn
 
 
 def write_frame_fn(self, file, frame, frameName="frame"):
     ''' build frame data '''
-    if not self.fUseSharedBoundingBox or self.fIsPlayerModel:  # .options
+    if not self.ui_opt_share_bbox or self.ui_opt_is_player:  # .options
         min = self.bbox_min[frame]
         max = self.bbox_max[frame]
     else:
@@ -256,16 +83,16 @@ def write_frame_fn(self, file, frame, frameName="frame"):
     # BL: some caching to speed it up:
     # -> sd_ gets the vertices between [0 and 255]
     #    which is our important quantization.
-    xMax = max[0] - min[0]
-    yMax = max[1] - min[1]
-    zMax = max[2] - min[2]
+    xMax = max[0] - min[0]  # bbox size
+    yMax = max[1] - min[1]  # bbox size
+    zMax = max[2] - min[2]  # bbox size
+    sdx = xMax / 255.0  # write default scale to file
+    sdy = yMax / 255.0  # write default scale to file
+    sdz = zMax / 255.0  # write default scale to file
 
-    sdx = xMax / 255.0
-    sdy = yMax / 255.0
-    sdz = zMax / 255.0
-    isdx = float(255.0 / xMax) if xMax != 0.0 else 0.0
-    isdy = float(255.0 / yMax) if yMax != 0.0 else 0.0
-    isdz = float(255.0 / zMax) if zMax != 0.0 else 0.0
+    isdx = float(65280.0 / xMax) if xMax != 0.0 else 0.0
+    isdy = float(65280.0 / yMax) if yMax != 0.0 else 0.0
+    isdz = float(65280.0 / zMax) if zMax != 0.0 else 0.0
 
     # note about the scale: self.object.scale is already applied via matrix_world
     data = struct.pack(
@@ -276,33 +103,59 @@ def write_frame_fn(self, file, frame, frameName="frame"):
     file.write(data)  # frame header
 
     ###########################
-    # write vertex X,Y,Z,Normal
+    # write vertex X,Y,Z,lightNormalID
     ofsetVertID = 0  # multi object
-    for mIdx, tmp_mesh in enumerate(self.frameData[frame]):
+    # frames
+    v8 = [0] * 3
+    v16 = [0] * 3
+    for mIdx, tmp_mesh in enumerate(self.frameData[frame]):  #object/s
+        #vertex data
         for vIdx, vert in enumerate(tmp_mesh[IDX_XYZ_V]):
             # find the closest normal for every vertex
             bestNormalIndex = self.vNormData[frame][mIdx][vIdx]
-            # write vertex pos and normal. (compressed position. 256 bytes)
-            data = struct.pack(
-                '<4B',
-                int(((vert[0] - min[0]) * isdx) + 0.5),
-                int(((vert[1] - min[1]) * isdy) + 0.5),
-                int(((vert[2] - min[2]) * isdz) + 0.5),
-                bestNormalIndex)
+            # write vertex pos and normal. (compressed position. 256 units)
+            v16[0] = int((vert[0] - min[0]) * isdx + 0.5)  # MH: compresion
+            v16[1] = int((vert[1] - min[1]) * isdy + 0.5)  # MH: compresion
+            v16[2] = int((vert[2] - min[2]) * isdz + 0.5)  # MH: compresion
+            v8[0] = (v16[0] + 128) >> 8  # MH: compresion
+            v8[1] = (v16[1] + 128) >> 8  # MH: compresion
+            v8[2] = (v16[2] + 128) >> 8  # MH: compresion
+            data = struct.pack('<4B', v8[0], v8[1], v8[2], bestNormalIndex)
             file.write(data)  # write vertex and normal
-        ofsetVertID += len(tmp_mesh[IDX_XYZ_V])
+        ofsetVertID += len(tmp_mesh[IDX_XYZ_V])  # TODO
+
+    # HD model
+    if self.ui_opt_is_hd == True:  # 'VERSION5':
+        for mIdx, tmp_mesh in enumerate(self.frameData[frame]):
+            for vert in tmp_mesh[IDX_XYZ_V]:
+                v16[0] = int((vert[0] - min[0]) * isdx + 0.5)  # MH: compresion
+                v16[1] = int((vert[1] - min[1]) * isdy + 0.5)  # MH: compresion
+                v16[2] = int((vert[2] - min[2]) * isdz + 0.5)  # MH: compresion
+                v8[0] = (v16[0] + 128) >> 8  # MH: compresion
+                v8[1] = (v16[1] + 128) >> 8  # MH: compresion
+                v8[2] = (v16[2] + 128) >> 8  # MH: compresion
+                data = struct.pack(  # HD vertex. 256 subdivision
+                    '<3b',
+                    v16[0] - (v8[0] << 8),  # MH: compresion
+                    v16[1] - (v8[1] << 8),  # MH: compresion
+                    v16[2] - (v8[2] << 8))  # MH: compresion
+                file.write(data)
+        ofsetVertID += len(tmp_mesh[IDX_XYZ_V])  # TODO not used
+
 # end write_frame_fn
 
 
 def buildGLcommands_fn(self):
     ''' build gl commands '''
-    self.time = timer()  # reset timmer
+    self.start_time = printStart_fn()  # reset timmer
     prefix = "Building GLCommands"
-    printProgress_fn(self, 0, prefix)  # print progress
+    printProgress_fn(0, 1, prefix)  # print progress
 
     def findStripLength_fn(usedFace, mesh, startTri, startVert, numFaces,
                            cmdTris, cmdVerts, cmdUV):
         ''' triangle strips '''
+        # usedFace_ = copy.copy(usedFace)  # duplicate
+
         face_data = mesh[IDX_IDC_V]
         uv_data = mesh[IDX_IDC_UV]  # get_uv_data(mesh)
         usedFace[startTri] = 2  # make tri as currently testing
@@ -325,7 +178,7 @@ def buildGLcommands_fn(self):
 
         cmdLength = 1  # stripCount
         for triIdx in range(startTri + 1, numFaces):
-            if(usedFace[triIdx] == 0):
+            if usedFace[triIdx] == 0:
                 for k in range(3):
                     # find 2 vertex that share vertex/UV data
                     if((m1 == face_data[triIdx * 3 + k]) and  # compare vertex indices
@@ -334,7 +187,7 @@ def buildGLcommands_fn(self):
                        (u2 == uv_data[triIdx * 3 + ((k + 1) % 3)])):
 
                         # move to next vertex loop
-                        if(cmdLength % 2 == 1):  # flip?
+                        if cmdLength % 2 == 1:  # flip?
                             m1 = face_data[triIdx * 3 + ((k + 2) % 3)]
                             u1 = uv_data[triIdx * 3 + ((k + 2) % 3)]
                         else:
@@ -351,9 +204,12 @@ def buildGLcommands_fn(self):
                         triIdx = startTri + 1  # restart looking?
 
         # clear used counter
-        for usedCounter in range(numFaces):
-            if usedFace[usedCounter] == 2:
-                usedFace[usedCounter] = 0
+        for fc in range(startTri, numFaces):
+            if usedFace[fc] == 2:
+                usedFace[fc] = 0
+        # for fIdx, f in enumerate(usedFace):
+        #     if f == 2:
+        #         usedFace[fIdx] = 0
 
         return cmdLength
     #  end findStripLength_fn
@@ -361,6 +217,8 @@ def buildGLcommands_fn(self):
     def findFanLength_fn(usedFace, mesh, startTri, startVert, numFaces,
                          cmdTris, cmdVerts, cmdUV):
         ''' triangle strips '''
+        # usedFace_ = copy.copy(usedFace)  # duplicate
+
         face_data = mesh[IDX_IDC_V]
         uv_data = mesh[IDX_IDC_UV]
         usedFace[startTri] = 2
@@ -383,7 +241,7 @@ def buildGLcommands_fn(self):
         cmdTris.append(startTri)
 
         for triIdx in range(startTri + 1, numFaces):
-            if(usedFace[triIdx] == 0):
+            if usedFace[triIdx] == 0:
                 for k in range(3):
                     # find 2 vertex that share vertex/UV data
                     if((m1 == face_data[triIdx * 3 + k]) and  # compare vertex...
@@ -405,9 +263,12 @@ def buildGLcommands_fn(self):
                         # hypo TODO: check this. go back n test all tri again?
 
         # clear used counter
-        for usedCounter in range(numFaces):
-            if usedFace[usedCounter] == 2:
-                usedFace[usedCounter] = 0
+        for fc in range(startTri, numFaces):
+            if usedFace[fc] == 2:
+                usedFace[fc] = 0
+        # for fIdx, f in enumerate(usedFace):
+        #     if f == 2:
+        #         usedFace[fIdx] = 0
 
         return cmdLength
     # end findFanLength_fn
@@ -421,83 +282,91 @@ def buildGLcommands_fn(self):
     mdxID = 0  # mdx hitbox index number
     ofsetVertID = 0   # multi object offset
     numCommands = 1  # add 1 for final NULL at end
-    # loop through selected mesh
+    # loop through selected mesh/s
     for tmp_mesh in self.frameData[0]:
         numFaces = tmp_mesh[IDX_I_FACE]
         usedFace = [0] * numFaces  # has face been used. array
-        for triIdx in range(numFaces):
-            if not usedFace[triIdx]:
-                # intialization
-                bestLength = 0
-                bestType = 0
-                bestVerts = []
-                bestTris = []
-                bestUV = []
+        # break up mesh for quicker processing. SPEED
+        for startIdx in range(0, numFaces, 256):
+            curMax = 256 if (numFaces - startIdx) >= 256 else (numFaces - startIdx)
+            curMax = startIdx + curMax
+            # loop through face range
+            for triIdx in range(startIdx, curMax):
+                #for triIdx in range(numFaces):
+                if not usedFace[triIdx]:
+                    # intialization
+                    bestLength = 0
+                    bestType = 0
+                    bestVerts = []
+                    bestTris = []
+                    bestUV = []
 
-                for startVert in range(3):
-                    cmdVerts = []
-                    cmdTris = []
-                    cmdUV = []
-                    cmdLength = findFanLength_fn(
-                        usedFace, tmp_mesh, triIdx, startVert, numFaces,
-                        cmdTris, cmdVerts, cmdUV)
-                    if (cmdLength > bestLength):
-                        bestType = 1
-                        bestLength = cmdLength
-                        bestVerts = cmdVerts
-                        bestTris = cmdTris
-                        bestUV = cmdUV
+                    for startVert in range(3):
+                        cmdVerts = []
+                        cmdTris = []
+                        cmdUV = []
+                        cmdLength = findFanLength_fn(
+                            usedFace, tmp_mesh, triIdx, startVert, curMax,  # numFaces,
+                            cmdTris, cmdVerts, cmdUV)
+                        if cmdLength > bestLength:
+                            bestType = 1
+                            bestLength = cmdLength
+                            bestVerts = cmdVerts
+                            bestTris = cmdTris
+                            bestUV = cmdUV
 
-                    cmdVerts = []
-                    cmdTris = []
-                    cmdUV = []
-                    cmdLength = findStripLength_fn(
-                        usedFace, tmp_mesh, triIdx, startVert, numFaces,
-                        cmdTris, cmdVerts, cmdUV)
-                    if (cmdLength > bestLength):
-                        bestType = 0
-                        bestLength = cmdLength
-                        bestVerts = cmdVerts
-                        bestTris = cmdTris
-                        bestUV = cmdUV
+                        cmdVerts = []
+                        cmdTris = []
+                        cmdUV = []
+                        cmdLength = findStripLength_fn(
+                            usedFace, tmp_mesh, triIdx, startVert, curMax,  # numFaces,
+                            cmdTris, cmdVerts, cmdUV)
+                        if cmdLength > bestLength:
+                            bestType = 0
+                            bestLength = cmdLength
+                            bestVerts = cmdVerts
+                            bestTris = cmdTris
+                            bestUV = cmdUV
 
-                # mark tringle as used
-                for usedCounter in range(bestLength):
-                    usedFace[bestTris[usedCounter]] = 1
+                    # mark tringle as used
+                    for usedCounter in range(bestLength):
+                        usedFace[bestTris[usedCounter]] = 1
 
-                cmd = []
-                if bestType == 0:   # strip
-                    num = bestLength + 2
-                else:               # fan
-                    num = (-(bestLength + 2))
+                    cmd = []
+                    if bestType == 0:   # strip
+                        num = bestLength + 2
+                    else:               # fan
+                        num = (-(bestLength + 2))
 
-                numCommands += 1
-                if self.isMdx:  # mdx
-                    numCommands += 1  # sub-object number
+                    numCommands += 1
+                    if self.isMdx:  # mdx
+                        numCommands += 1  # sub-object number
 
-                uv_layer = tmp_mesh[IDX_XY_UV]  # uv_cords
-                for cmdCounter in range(bestLength + 2):
-                    cmd.append((0.0 + uv_layer[bestUV[cmdCounter]][0],  # X uv cords
-                                1.0 - uv_layer[bestUV[cmdCounter]][1],  # Y uv cords
-                                bestVerts[cmdCounter] + ofsetVertID))   # vertex number
-                    numCommands += 3
+                    uv_layer = tmp_mesh[IDX_XY_UV]  # uv_cords
+                    for cmdCounter in range(bestLength + 2):
+                        cmd.append((0.0 + uv_layer[bestUV[cmdCounter]][0],  # X uv cords
+                                    1.0 - uv_layer[bestUV[cmdCounter]][1],  # Y uv cords
+                                    bestVerts[cmdCounter] + ofsetVertID))   # vertex number
+                        numCommands += 3
 
-                self.glCmdList.append((
-                    num,   # fan/strip count
-                    mdxID,  # object number
-                    cmd))   # S, T, vIdx
+                    self.glCmdList.append((
+                        num,   # fan/strip count
+                        mdxID,  # object number
+                        cmd))   # S, T, vIdx
 
+            printProgress_fn(startIdx, numFaces, prefix)  # print progress
         #  multi part object offset
         ofsetVertID += len(tmp_mesh[IDX_XYZ_V])
-        mdxID += 1 if self.fSeparateHitbox else 0
+        mdxID += 1 if self.ui_opt_use_hitbox else 0
         del usedFace
 
-    printDone_fn(self, prefix)  # Done.
+    printDone_fn(self.start_time, prefix)  # Done.
     # print("GLCommands. (Count: {})".format(numCommands))
     del cmdVerts, cmdUV, cmdTris, bestVerts, bestUV, bestTris
     return numCommands
 
 
+# TODO
 def getSkins_fn(self, objects, method):
     '''TODO change this
     SKIN_MAT_NAME = get materal names, then check for valid images for size
@@ -547,9 +416,9 @@ def getSkins_fn(self, objects, method):
                     outH = height
         return outW, outH, found
 
-    self.time = timer()  # reset timmer
+    self.start_time = printStart_fn()  # reset timmer
     prefix = "Getting Skins"
-    printProgress_fn(self, 0, prefix)  # print progress
+    printProgress_fn(0, 1, prefix)  # print progress
     skins = []
     width = height = 256
     foundWH = False  # find largest image
@@ -600,7 +469,7 @@ def getSkins_fn(self, objects, method):
             '''else:  # TODO no nodes? use uv name?
                 # use uv name/texture?'''
 
-    printDone_fn(self, prefix)  # Done.
+    printDone_fn(self.start_time, prefix)  # Done.
     print("Count:  {}\n".format(len(skins)) +
           "Width:  {}\n".format(width) +
           "Height: {}".format(height))
@@ -608,12 +477,17 @@ def getSkins_fn(self, objects, method):
         print("skin{}:  {}".format(idx + 1, skin[0:MD2_MAX_SKINNAME]))
     if height > 480 or width > 480:
         print("WARNING: found texture larger than kingpin max 480px")
-    print("===============")
 
-    if width < 8:
-        width = 64
-    if height < 8:
-        height = 64
+    print("===============")
+    # set min/max (kp crashes with more then 480, but is not use by opengl render)
+    if width < 16:
+        width = 16
+    if height < 16:
+        height = 16
+    if height > 480:
+        height = 480
+    if width > 480:
+        width = 480
 
     self.skinWidth = width
     self.skinHeight = height
@@ -640,7 +514,7 @@ def buildFrameNames_fn(self):
             else:
                 markerFrame = timeLineMarkers[i].frame
     for frame in range(self.numFrames):
-        frameIdx = frame - self.fStartFrame + 1
+        frameIdx = frame - self.ui_opt_fr_start + 1
         # build frame names
         if len(timeLineMarkers) != 0:
             fNameIdx = 1
@@ -666,11 +540,11 @@ def calcSharedBBox_fn(self):
     max = [-9999.0, -9999.0, -9999.0]
 
     for frame in range(self.numFrames):
-        if not self.fUseSharedBoundingBox:  # .options
+        if not self.ui_opt_share_bbox:  # .options
             # reset bounding box
             min = [9999.0, 9999.0, 9999.0]
             max = [-9999.0, -9999.0, -9999.0]
-        meshes = self.frameDataBBox[frame] if self.fIsPlayerModel else self.frameData[frame]
+        meshes = self.frameDataBBox[frame] if self.ui_opt_is_player else self.frameData[frame]
         for tmp_mesh in meshes:
             for vert in tmp_mesh[IDX_XYZ_V]:
                 for i in range(3):
@@ -680,12 +554,12 @@ def calcSharedBBox_fn(self):
                         max[i] = vert[i]
 
         # add new bbox for each frame
-        if not self.fUseSharedBoundingBox or self.fIsPlayerModel:  # .options
+        if not self.ui_opt_share_bbox or self.ui_opt_is_player:  # .options
             self.bbox_min.append(min)
             self.bbox_max.append(max)
 
     # store only 1 bbox
-    if self.fUseSharedBoundingBox:  # .options
+    if self.ui_opt_share_bbox:  # .options
         self.bbox_min.append(min)
         self.bbox_max.append(max)
 
@@ -698,7 +572,7 @@ def calculateHitBox_fn(self):
         hitboxMin = [9999, 9999, 9999]
         hitboxMax = [-9999, -9999, -9999]
         for tmp_mesh in self.frameData[frame]:
-            if self.fSeparateHitbox:  # option: seperate hitbox for players
+            if self.ui_opt_use_hitbox:  # option: seperate hitbox for players
                 hitboxMin = [9999, 9999, 9999]
                 hitboxMax = [-9999, -9999, -9999]
 
@@ -709,17 +583,18 @@ def calculateHitBox_fn(self):
                     if vert[i] > hitboxMax[i]:
                         hitboxMax[i] = vert[i]
 
-            if self.fSeparateHitbox:
+            if self.ui_opt_use_hitbox:
                 hitboxTmp.append([hitboxMin[0], hitboxMin[1], hitboxMin[2],
                                   hitboxMax[0], hitboxMax[1], hitboxMax[2]])
 
-        if not self.fSeparateHitbox:
+        if not self.ui_opt_use_hitbox:
             hitboxTmp.append([hitboxMin[0], hitboxMin[1], hitboxMin[2],
                               hitboxMax[0], hitboxMax[1], hitboxMax[2]])
 
         self.hitbox.append(hitboxTmp)
 
 
+# TODO speed boost VN list
 def calculateVNornIndex_fn(self):
     '''find the closest normal for every vertex on all frames
         TODO speed this up somehow?
@@ -728,11 +603,12 @@ def calculateVNornIndex_fn(self):
     # import numpy as np  # todo test
 
     # self.vNormData = [None] * self.numFrames
-    self.time = timer()  # reset timmer
+    self.start_time = printStart_fn()  # reset timmer
     # print('=====')
     prefix = "Calculate vertex normals"
     for frame in range(self.numFrames):
-        printProgress_fn(self, frame, prefix)  # print progress
+        if self.numFrames < 50 or (frame % 20) == 0:
+            printProgress_fn(frame, self.numFrames, prefix)  # print progress
         m_tmp = []
         for tmp_mesh in self.frameData[frame]:
             vn_tmp = [0] * tmp_mesh[IDX_I_VERT]
@@ -755,7 +631,7 @@ def calculateVNornIndex_fn(self):
             del vn_tmp
         self.vNormData.append(m_tmp)  # frame
     del m_tmp
-    printDone_fn(self, prefix)  # Done.
+    printDone_fn(self.start_time, prefix)  # Done.
 
 
 def setup_data_fn(self, context):
@@ -765,9 +641,16 @@ def setup_data_fn(self, context):
         for tmp_mesh in self.frameData[0]:
             triCount += tmp_mesh[IDX_I_FACE]
 
-        if triCount > MD2_MAX_TRIANGLES:
-            raise RuntimeError("Object has too many (triangulated) faces (%i), at most %i are supported in md2"
-                               % (triCount, MD2_MAX_TRIANGLES))
+        if self.ui_opt_is_hd == True:
+            if triCount > MDX5_MAX_TRIANGLES:  # MDX5_VERSION TODO
+                raise RuntimeError(
+                    "Object has too many (triangulated) faces (%i), at most %i are supported in mdx HD"
+                    % (triCount, MDX5_MAX_TRIANGLES))
+        else:
+            if triCount > MD2_MAX_TRIANGLES:
+                raise RuntimeError(
+                    "Object has too many (triangulated) faces (%i), at most %i are supported in md2"
+                    % (triCount, MD2_MAX_TRIANGLES))
         return triCount
 
     def get_numVerts(self):
@@ -775,10 +658,16 @@ def setup_data_fn(self, context):
         for tmp_mesh in self.frameData[0]:
             vertCount += tmp_mesh[IDX_I_VERT]
 
-        if vertCount > MD2_MAX_VERTS:
-            raise RuntimeError(
-                "Object has too many (triangulated) faces (%i), at most %i are supported in md2"
-                % (vertCount, MD2_MAX_VERTS))
+        if self.ui_opt_is_hd == True:
+            if vertCount > MDX5_MAX_VERTS:  # MDX5_VERSION
+                raise RuntimeError(
+                    "Object has too many (triangulated) faces (%i), at most %i are supported in mdx HD"
+                    % (vertCount, MDX5_MAX_VERTS))
+        else:
+            if vertCount > MD2_MAX_VERTS:
+                raise RuntimeError(
+                    "Object has too many (triangulated) faces (%i), at most %i are supported in md2"
+                    % (vertCount, MD2_MAX_VERTS))
         return vertCount
 
     def get_numUV(self):
@@ -798,24 +687,27 @@ def setup_data_fn(self, context):
     self.vertices = -1
     self.faces = 0
     self.status = ('', '')
-    self.numFrames = 1 if not self.fExportAnimation else (1 + self.fEndFrame - self.fStartFrame)
+    self.numFrames = 1 if not self.ui_opt_animated else (1 + self.ui_opt_fr_end - self.ui_opt_fr_start)
     if self.numFrames > MD2_MAX_FRAMES:
         raise RuntimeError(
             "There are too many frames (%i), at most %i are supported in md2/mdx"
             % (self.numFrames, MD2_MAX_FRAMES))
 
-    getSkins_fn(self, self.objects, self.fTextureNameMethod)  # get texture names
+    getSkins_fn(self, self.objects, self.ui_opt_tex_name)  # get texture names
     self.frameNames = buildFrameNames_fn(self)  # setup frame names
-    setupInternalArrays_fn(self, context)  # generate mesh/objects
-    calcSharedBBox_fn(self)   # get min/max dimensions
+    setupInternalArrays_fn(self)  # generate mesh/objects
+    calcSharedBBox_fn(self)       # get min/max dimensions
     calculateVNornIndex_fn(self)  # slow
 
     self.numSkins = len(self.skins)
     self.numVerts = get_numVerts(self)
     self.numTris = get_numTris(self)
     self.numGLCmds = buildGLcommands_fn(self)
+    if self.ui_opt_is_hd == False:
+        self.frameSize = struct.calcsize("<6f16s") + (struct.calcsize("<4B") * self.numVerts)
+    else:
+        self.frameSize = struct.calcsize("<6f16s") + (struct.calcsize("<7B") * self.numVerts)
 
-    self.frameSize = struct.calcsize("<6f16s") + (struct.calcsize("<4B") * self.numVerts)
     # setup md2/mdx header
     if self.isMdx:
         self.ident = 1481655369
@@ -823,7 +715,7 @@ def setup_data_fn(self, context):
         calculateHitBox_fn(self)
         self.numSfxDefines = 0  # mdx
         self.numSfxEntries = 0  # mdx
-        self.numSubObjects = 1 if not self.fSeparateHitbox else len(self.objects)
+        self.numSubObjects = 1 if not self.ui_opt_use_hitbox else len(self.objects)
         # offsets
         self.ofsSkins = struct.calcsize("<23i")
         self.ofsTris = self.ofsSkins + struct.calcsize("<64s") * self.numSkins
@@ -833,7 +725,9 @@ def setup_data_fn(self, context):
         self.ofsSfxDefines = self.ofsVertexInfo + struct.calcsize("<i") * (self.numVerts)  # mdx
         self.ofsSfxEntries = self.ofsSfxDefines  # mdx
         self.ofsBBoxFrames = self.ofsSfxEntries  # mdx
-        self.ofsDummyEnd = self.ofsBBoxFrames + struct.calcsize("<6i") * (self.numFrames * self.numSubObjects)  # mdx
+        self.ofsDummyEnd = (
+            self.ofsBBoxFrames + struct.calcsize("<6i") *
+            (self.numFrames * self.numSubObjects))  # mdx
         self.ofsEnd = self.ofsDummyEnd
     else:
         self.ident = 844121161
@@ -851,7 +745,7 @@ def setup_data_fn(self, context):
 def write_fn(self, filePath):
     ''' write file '''
 
-    self.time = timer()  # reset timmer
+    self.start_time = printStart_fn()  # reset timmer
     prefix = "Writing file"
     #
     file = open(filePath, "wb")
@@ -927,7 +821,8 @@ def write_fn(self, filePath):
         # ####################
         # ### write frame/s ###
         for frame in range(self.numFrames):
-            printProgress_fn(self, frame, prefix)  # print progress
+            if self.numFrames < 50 or (frame % 20) == 0:
+                printProgress_fn(frame, self.numFrames, prefix)  # print progress
 
             # output frames to file
             write_frame_fn(self, file, frame, self.frameNames[frame])
@@ -962,7 +857,7 @@ def write_fn(self, filePath):
             # ofsVertexInfo #mdx
             for mdxObj, tmp_mesh in enumerate(self.frameData[0]):
                 for vert in range(tmp_mesh[IDX_I_VERT]):
-                    if self.fSeparateHitbox:
+                    if self.ui_opt_use_hitbox:
                         bits = (1 << mdxObj)
                     else:
                         bits = 1
@@ -986,14 +881,16 @@ def write_fn(self, filePath):
     finally:
         file.close()
 
-    printDone_fn(self, prefix)  # Done.
-    print("Model exported.")
+    printDone_fn(self.start_time, prefix)  # Done.
+    # print("Model exported.")
     # TODO cleanup arrays
     del self.frameNames, self.frameData, self.frameDataBBox, self.vNormData
 
 
 def Export_MD2_fn(self, context, filepath):
     '''    Export model    '''
+    # todo remove any non mesh instead of generating an error
+    # todo use common
     def isSelObjs_mesh_fn(self):
         ''' make sure all selected objects are mesh '''
         for obj in self.objects:
@@ -1001,8 +898,10 @@ def Export_MD2_fn(self, context, filepath):
                 return False
         return True
 
-    self.time = timer()
+    startTime = printStart_fn() # total time
+    self.start_time = startTime
     # file extension
+    # TODO fix this. checkbox. forced file type
     ext = os.path.splitext(os.path.basename(filepath))[1]
     if ext == '.mdx':
         self.isMdx = True
@@ -1011,19 +910,23 @@ def Export_MD2_fn(self, context, filepath):
         self.isMdx = False
     else:
         raise RuntimeError("ERROR: Incorrect file extension. Not md2 or mdx")
-        return False
 
     if isSelObjs_mesh_fn(self):  # self.isMesh
         origFrame = bpy.context.scene.frame_current
 
-        if self.fIsPlayerModel:
-            self.fUseSharedBoundingBox = False
+        # fix invalid state
+        if self.ui_opt_is_player:
+            self.ui_opt_share_bbox = False
+        if self.ui_opt_apply_modify == False:
+            self.ui_opt_cust_vn = False
 
         try:
             setup_data_fn(self, context)
             write_fn(self, filepath)
+            # total time
+            printDone_fn(startTime, "Total time")  # Done.
         finally:
-            # if self.fExportAnimation:
+            # if self.ui_opt_animated:
             bpy.context.scene.frame_set(origFrame, subframe=0.0)
     else:
         raise RuntimeError("Only mesh objects can be exported")

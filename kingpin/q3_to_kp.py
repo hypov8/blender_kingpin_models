@@ -3,11 +3,11 @@
 # from inspect import getfile
 # from logging import exception
 # from tkinter import EXCEPTION
-from ast import ExceptHandler, Try, excepthandler
-from distutils.log import error
-from logging import raiseExceptions
-from posixpath import split
-from xml.dom.pulldom import ErrorHandler
+from ast import ExceptHandler  # , Try, excepthandler
+# from distutils.log import error
+# from logging import raiseExceptions
+# from posixpath import split
+# from xml.dom.pulldom import ErrorHandler
 import bpy
 from bpy.types import (
     Operator,
@@ -24,19 +24,19 @@ from bpy.props import (
     PointerProperty,
     FloatProperty
 )
-from bpy.app.handlers import persistent
+# from bpy.app.handlers import persistent
 
 
 from collections import namedtuple
-from math import radians, pi  # , cos, sin
+from math import radians  # , pi, cos, sin
 
-from mathutils import Quaternion, Vector, Matrix, Euler
-from typing import List
+from mathutils import Vector, Matrix  # , Quaternion, Euler
+# from typing import List
 
 from .common_kp import (
     make_annotations,
     set_select_state,
-    get_objects,
+    # get_objects_all,
     set_obj_group,
     update_matrices
 )
@@ -49,44 +49,52 @@ class KINGPIN_Q3_to_KP_Properties(bpy.types.PropertyGroup):
     # stand
     ui_stand_tg_idle = BoolProperty(
         name="Idle TG",  # (Standing)",
-        description="Leg idle animations.\nLeg animation will be static if un-checked",
+        description=("Leg idle animations.\n" +
+                     "Leg animation will be static if un-checked"),
         default=True,
     )
     ui_stand_p_idle = BoolProperty(
         name="Idle GUN",  # Pistol (Standing)",
-        description="Leg idle animations.\nLeg animation will be static if un-checked",
+        description=("Leg idle animations.\n" +
+                     "Leg animation will be static if un-checked"),
         default=True,
     )
     ui_stand_ma_idle = BoolProperty(
         name="Idle PIPE",  # Pipe (Standing)",
-        description="Leg idle animations.\nLeg animation will be static if un-checked",
+        description=("Leg idle animations.\n" +
+                     "Leg animation will be static if un-checked"),
         default=True,
     )
     ui_stand_taunt = BoolProperty(
         name="Taunt",
-        description="Leg idle animations.\nLeg animation will be static if un-checked",
+        description=("Leg idle animations.\n" +
+                     "Leg animation will be static if un-checked"),
         default=False,
     )
     ui_stand_attack = BoolProperty(
         name="Attack",
-        description="Leg idle animations.\nLeg animation will be static if un-checked",
+        description=("Leg idle animations.\n" +
+                     "Leg animation will be static if un-checked"),
         default=False,
     )
     ui_stand_ladder = BoolProperty(
         name="Ladder",
-        description="Leg idle animations.\nLeg animation will be static if un-checked",
+        description=("Leg idle animations.\n" +
+                     "Leg animation will be static if un-checked"),
         default=True,
     )
     ##########
     # crouch #
     ui_crouch_idle = BoolProperty(
         name="idle",
-        description="Leg idle animations.\nLeg animation will be static if un-checked",
+        description=("Leg idle animations.\n" +
+                     "Leg animation will be static if un-checked"),
         default=True,
     )
     ui_crouch_shoot = BoolProperty(
         name="Attack",
-        description="Leg idle animations.\nLeg animation will be static if un-checked",
+        description=("Leg idle animations.\n" +
+                     "Leg animation will be static if un-checked"),
         default=False,
     )
     ############################
@@ -442,7 +450,8 @@ class KINGPIN_UI_BUTTON_GO(Operator):
 
             def set_key_mesh_fn(targetObj_f, time_kp_f, time_q3_f):
                 obj_sk = targetObj_f.data.shape_keys
-                obj_sk.eval_time = (time_q3_f * 10)  # 2.7 is buggy when you press Re-Time Shape Keys (+ 10)
+                # note: 2.7 is buggy when you press Re-Time Shape Keys (+ 10)
+                obj_sk.eval_time = ((time_q3_f+1) * 10)  # +10. dont use base key (causes coruption)
                 obj_sk.keyframe_insert(data_path='eval_time', frame=time_kp_f)
 
             def evalTime_pos_fn(obj, time):
@@ -543,7 +552,7 @@ class KINGPIN_UI_BUTTON_GO(Operator):
                 print("Converting %s (%i/%i) %s" %
                       (printPart[body_part_f], objIdx, obj_total, srcName))
 
-                if (tagname == "tag_"):
+                if tagname == "tag_":
                     #############
                     # tag object
                     #############
@@ -556,19 +565,19 @@ class KINGPIN_UI_BUTTON_GO(Operator):
                     # build name for new object.
                     # add tag for parenting
                     tempname = "KP_" + sourceObj.name
-                    if (body_part_f == MODEL_LEGS):  # leg->torso
-                        if (srcName[:9] == "tag_torso"):
+                    if body_part_f == MODEL_LEGS:  # leg->torso
+                        if srcName[:9] == "tag_torso":
                             tempname += "_InLegs"
                             self.tag_body_nodeID = targetObj
-                    elif (body_part_f == MODEL_BODY):
+                    elif body_part_f == MODEL_BODY:
                         if srcName[:8] == "tag_weap":  # body->weapon
                             tempname += "_InBody_"
                             self.tag_wep_nodeID = targetObj
-                    elif (body_part_f == MODEL_HEAD):
+                    elif body_part_f == MODEL_HEAD:
                         if srcName[:8] == "tag_head":  # body->head
                             tempname += "_InBody_"
                             self.tag_head_nodeID = targetObj
-                    elif (body_part_f == MODEL_WEPS):
+                    elif body_part_f == MODEL_WEPS:
                         if (srcName[:9] == "tag_flash"):  # weap->flash
                             tempname += "_InWeap_"
                             self.tag_flash_nodeID = targetObj

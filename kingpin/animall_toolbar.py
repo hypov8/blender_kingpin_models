@@ -13,38 +13,24 @@ Note: Use full 'AnimAll' plugin if you want full control.
 '''
 
 
-from ensurepip import version
 import bpy
 from bpy.types import (
     Operator,
-    Panel,
-    # AddonPreferences,
+    Panel
 )
 from bpy.props import (
     BoolProperty,
     EnumProperty,
     StringProperty,
-    IntProperty,
-    CollectionProperty,
-    PointerProperty,
+    PointerProperty
 )
-
 from bpy.app.handlers import persistent
-
-from . import common_kp
-
-from .common_kp import (
-    get_preferences,
-    make_annotations,
-    get_menu_import,
-    get_menu_export,
-    set_select_state,
-    get_layers,
-)
+from .common_kp import make_annotations
 
 
 # Utility functions
 def refresh_ui_keyframes():
+    ''' UI keyframe types '''
     try:
         for area in bpy.context.screen.areas:
             if area.type in ('TIMELINE', 'GRAPH_EDITOR', 'DOPESHEET_EDITOR'):
@@ -54,7 +40,7 @@ def refresh_ui_keyframes():
 
 
 def insert_key(data, key, group=None):
-    data_ = None
+    ''' data.keyframe_insert(key, group=group)'''
     try:
         if group is not None:
             data.keyframe_insert(key, group=group)
@@ -65,6 +51,7 @@ def insert_key(data, key, group=None):
 
 
 def delete_key(data, key):
+    ''' data.keyframe_delete(key) '''
     try:
         data.keyframe_delete(key)
     except print("ERROR: delete_key"):
@@ -72,35 +59,37 @@ def delete_key(data, key):
 
 
 @persistent
-def post_frame_change(dummy):
+def post_frame_change():
+    ''' bpy.ops.object.mode_set(mode=mode) '''
     if bpy.context.mode != 'OBJECT':
         mode = bpy.context.object.mode
         bpy.ops.object.mode_set(mode='OBJECT')
-        obj = bpy.context.active_object
-        sk_data = obj.data.shape_keys
-        is_vertex = (not obj.active_shape_key and
-                     not obj.active_shape_key_index and
-                     not sk_data)
+        # obj = bpy.context.active_object
+        # sk_data = obj.data.shape_keys
+        # is_vertex = (not obj.active_shape_key and
+        #             not obj.active_shape_key_index and
+        #             not sk_data)
         bpy.context.scene.objects.active = bpy.context.scene.objects.active
         bpy.ops.object.mode_set(mode=mode)
 
         print("post_frame_change1")
-    pass
 
 
 @persistent
-def pre_frame_change(dummy):
+def pre_frame_change():
+    ''' bpy.context.active_object.update_from_editmode() '''
     if bpy.context.mode != 'OBJECT':
         bpy.context.active_object.update_from_editmode()
         bpy.context.scene.objects.active = bpy.context.scene.objects.active
         print("pre_frame_change1")
-    pass
 
 
 # Property Definitions
 class AnimallProperties_KP(bpy.types.PropertyGroup):
-    # auto update frame change
+    ''' auto update frame change '''
+
     def chkBox_autoUpdateFrame(self, context):
+        '''  '''
         if self.key_frame:
             bpy.app.handlers.frame_change_pre.append(pre_frame_change)
             bpy.app.handlers.frame_change_post.append(post_frame_change)
@@ -116,13 +105,17 @@ class AnimallProperties_KP(bpy.types.PropertyGroup):
         items=[
             ('NONE', "-----", "Use Default interpolation", 0),
             ('CONSTANT', "Constant",
-             "No interpolation, value of A gets held until B is encountered", 'IPO_CONSTANT', 1),
+             "No interpolation, value of A gets held until B is encountered",
+             'IPO_CONSTANT', 1),
             ('LINEAR', "Linear",
-             "Straight-line interpolation between A and B (i.e. no ease in/out).", 'IPO_LINEAR', 2),
+             "Straight-line interpolation between A and B (i.e. no ease in/out).",
+             'IPO_LINEAR', 2),
             ('BEZIER', "Bezier",
-             "Smooth interpolation between A and B, with some control over curve shape.", 'IPO_BEZIER', 3),
+             "Smooth interpolation between A and B, with some control over curve shape.",
+             'IPO_BEZIER', 3),
             ('SINE', "Sinusoidal",
-             "Sinusoidal easing (weakest, almost linear but with a slight curvature).", 'IPO_SINE', 4),
+             "Sinusoidal easing (weakest, almost linear but with a slight curvature).",
+             'IPO_SINE', 4),
             ('QUAD', "Quadratic",
              "Quadratic easing", 'IPO_QUAD', 5),
             ('CUBIC', "Cubic",
@@ -138,9 +131,11 @@ class AnimallProperties_KP(bpy.types.PropertyGroup):
             ('BACK', "Back",
              "Cubic easing with overshoot and settle", 'IPO_BACK', 11),
             ('BOUNCE', "Bounce",
-             "Exponentially decaying parabolic bounce, like when objects collide.", 'IPO_BOUNCE', 12),
+             "Exponentially decaying parabolic bounce, like when objects collide.",
+             'IPO_BOUNCE', 12),
             ('ELASTIC', "Elastic",
-             "Exponentially decaying sine wave, like an elastic band.", 'IPO_ELASTIC', 13),
+             "Exponentially decaying sine wave, like an elastic band.",
+             'IPO_ELASTIC', 13),
         ],
         default="NONE",
     )
@@ -179,6 +174,7 @@ class VIEW3D_PT_animall_KP(Panel):
         return context.active_object and context.active_object.type in {'MESH'}'''
 
     def draw(self, context):
+        '''  '''
         obj = context.active_object
         if not obj:
             layout = self.layout
@@ -194,7 +190,8 @@ class VIEW3D_PT_animall_KP(Panel):
         is_vertex = (not sk_data or
                      (sk_activ and not sk_index))
 
-        # print("sk_a={}\nsk_id={}\nsk_dat={}\n".format(sk_activ, sk_index, "true" if sk_data else "false"))
+        # print("sk_a={}\nsk_id={}\nsk_dat={}\n".format(
+        #   sk_activ, sk_index, "true" if sk_data else "false"))
 
         layout = self.layout
         col = layout.column(align=True)
@@ -255,7 +252,7 @@ class VIEW3D_PT_animall_KP(Panel):
         # frame number
         row = box.row()
         row.alignment = 'LEFT'
-        strRow = ("Fr: %i" % bpy.context.scene.frame_current)
+        str_row = ("Fr: %i" % bpy.context.scene.frame_current)
 
         # new objects wint have this updated yet
         sk_name = "Error:" if sk_activ is None else sk_activ.name
@@ -264,11 +261,10 @@ class VIEW3D_PT_animall_KP(Panel):
             ####################
             # absalute shapekeys
             if not sk_data.use_relative:  # sk absolute
-                row.label(text="%s   SK: %s" % (strRow, sk_name))  # , icon="SHAPEKEY_DATA")
+                row.label(text="%s   SK: %s" % (str_row, sk_name))  # , icon="SHAPEKEY_DATA")
                 if (sk_data and sk_data.key_blocks):
                     sk_frame = sk_data.key_blocks[sk_index].frame
-                    curFrame = bpy.context.scene.frame_current
-                    val = float(curFrame * 10)
+                    val = float(bpy.context.scene.frame_current * 10)
                     frame_min = val - 0.01  # find close float
                     frame_max = val + 0.01  #
                     if not (sk_frame > frame_min and sk_frame < frame_max):
@@ -276,14 +272,14 @@ class VIEW3D_PT_animall_KP(Panel):
                         row.label(text="Shape Key Not sync'd", icon="INFO")
             ####################
             # relative shapekeys
-            elif (sk_index > 0):
-                row.label(text="%s   SK: %s" % (strRow, sk_name))  # , icon="SHAPEKEY_DATA")
+            elif sk_index > 0:
+                row.label(text="%s   SK: %s" % (str_row, sk_name))  # , icon="SHAPEKEY_DATA")
                 if sk_activ.value < 1:
                     row = box.row()  # row 4
                     row.label(text='sKey not 1.0? sync?', icon="INFO")
-            elif (sk_activ or sk_data):
+            elif sk_activ or sk_data:
                 key0_Name = sk_data.key_blocks[0].name if sk_data else sk_name
-                row.label(text="%s   SK: %s (Base)" % (strRow, key0_Name))  # , icon="SHAPEKEY_DATA")
+                row.label(text="%s   SK: %s (Base)" % (str_row, key0_Name))  # icon="SHAPEKEY_DATA"
                 row = box.row()  # row 4
                 row.label(text="sKey: Index 0", icon="ERROR")  # index invalid
         # else:
@@ -351,13 +347,13 @@ class ANIM_OT_frame_next_KP(Operator):
 
 # button frame update/sync
 class ANIM_OT_frame_update_KP(Operator):
-    """
-    """
+    """    """
     bl_label = "Sync"
     bl_idname = "anim.frame_update_kp"
-    bl_description = ("Update/Sync Mesh. Use This after changing the Timeline\n"
-                      "Shape key mode: will search for SK with 1.0 value, to match current frame\n"
-                      "Vertex mode: will goto object mode, advance 1 frame then return to previous frame")
+    bl_description = (
+        "Update/Sync Mesh. Use This after changing the Timeline\n"
+        "Shape key mode: will search for SK with 1.0 value, to match current frame\n"
+        "Vertex mode: will goto object mode, advance 1 frame then return to previous frame")
     bl_options = {'REGISTER'}  # , 'UNDO'}
 
     message = StringProperty(default="unset")
@@ -380,15 +376,6 @@ class ANIM_OT_frame_update_KP(Operator):
             bpy.context.scene.frame_set(origFrame)
             # TODO work out blender update().
             # only frame change working?
-
-            # obj.update_tag(refresh={'OBJECT'})  # 'DATA' too if you care about geometry
-            # context.scene.update()
-
-            # obj.data.update()
-            # context.scene.update()
-            # obj.update_tag({'OBJECT', 'DATA', 'TIME'})
-            # bpy.context.view_layer.depsgraph.update()  # 2.8
-            # bpy.context.view_layer.update()  # 2.8
         elif not sk_data.use_relative:  # sk absolute
             val = float(origFrame * 10)
             frame_min = val - 0.01  # find close float
@@ -400,7 +387,6 @@ class ANIM_OT_frame_update_KP(Operator):
                     foundIdx = i
                     break
             obj.active_shape_key_index = foundIdx
-
         else:  # shape key relative
             active_sk = len(sk_data.key_blocks)
             foundIdx = 0
@@ -439,7 +425,7 @@ def insertKey_kp(context, allVerts=False):
         else:
             objects = context.selected_objects  # 2.79
 
-    mode = context.object.mode
+    edit_mode = context.object.mode
     bpy.ops.object.mode_set(mode='OBJECT')
 
     for obj in [o for o in objects if o.type in {'MESH'}]:
@@ -451,8 +437,8 @@ def insertKey_kp(context, allVerts=False):
         data = obj.data
         selVerts = [False] * len(data.vertices)
         if obj.type == 'MESH':
-            ###############
-            # vertex mode #
+            ########################
+            # vertex keyframe mode #
             if is_vertex:
                 # if kp_tool_anim.key_points:
                 for v_i, vert in enumerate(data.vertices):
@@ -461,24 +447,24 @@ def insertKey_kp(context, allVerts=False):
                         selVerts[v_i] = True
 
                 # set interpolation TODO move to function
-                if (animProp_KP.key_keytype_in != 'NONE'):
+                if animProp_KP.key_keytype_in != 'NONE':
                     anim = obj.data.animation_data
                     if anim is not None and anim.action is not None:
                         for fcu in anim.action.fcurves:
                             for v_i, kf in enumerate(fcu.keyframe_points):
-                                if (selVerts[v_i] is True and kf.co[0] > frame_min and kf.co[0] < frame_max):
+                                if selVerts[v_i] is True and kf.co[0] > frame_min and kf.co[0] < frame_max:
                                     kf.interpolation = animProp_KP.key_keytype_in
                                     kf.easing = animProp_KP.key_keytype_out
                             fcu.update()
 
-            ##################
-            # shape key mode (absolute)#
+            #############################
+            # shape key mode (absolute) #
             elif not sk_data.use_relative:  # sk absolute
                 sk_data.eval_time = (frame * 10)
                 sk_data.keyframe_insert(data_path='eval_time')  # , frame=frame)
 
                 # set interpolation TODO move to function
-                if (animProp_KP.key_keytype_in != 'NONE'):
+                if animProp_KP.key_keytype_in != 'NONE':
                     anim = obj.data.shape_keys.animation_data
                     if anim is not None and anim.action is not None:
                         for fcu in anim.action.fcurves:
@@ -488,8 +474,8 @@ def insertKey_kp(context, allVerts=False):
                                     kf.easing = animProp_KP.key_keytype_out
                             fcu.update()
 
-            ##################
-            # shape key mode (multi)#
+            ###################################
+            # shape key mode (multi/relative) #
             else:
                 if obj.active_shape_key_index > 0:  # TODO ok?
                     sk_name = obj.active_shape_key.name
@@ -497,7 +483,7 @@ def insertKey_kp(context, allVerts=False):
                         if allVerts or data.vertices[v_i].select:
                             insert_key(vert, 'co', group="%s Vertex %s" % (sk_name, v_i))
 
-    bpy.ops.object.mode_set(mode=mode)
+    bpy.ops.object.mode_set(mode=edit_mode)
     refresh_ui_keyframes()
 
 
