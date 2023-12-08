@@ -1,63 +1,63 @@
-# Quake 2 and Kingpin .md2 .mdx import/export add-on for Blender
+# Quake 2 and Kingpin.md2.mdx import/export add-on for Blender
 
 Tested to work in blender 2.79, 2.80, 2.92, 3.2.1
 
 Skins can be set using image textures or materials. if it is longer than 63 characters it is truncated.
 
-Import mesh animation as vertex or shapekey
+Import mesh animation as vertex or shape key
 
 Frame names can be read/set for timeline
 
 ## Using animation driver
--    if you have a complete mesh with animated data, you cant delets faces/vertex. so use this to re-animate
--    first set scene frame. preferabl frame 0
--    Duplicate mesh(the one that has the full animation)
--    on the duplicated mesh, remove all animation data (use button Clear Anim)
--    in edit mode, delete parts of the mesh you dont want.
--    in kp tools, select 'target'(the original mesh you cloned)
--    in kp tools, press 'Animate mesh'
--    if model was aligned properly, the closest vertex from target will drive vertex in the selected object/s
--    scrub through timeline to confirm animation. remove any 'modifiers' that may effect animation
+- if you have a complete mesh with animated data, you can't delete faces/vertex. so use this to re-animate
+- first set scene frame. preferable frame 0
+- Duplicate mesh(the one that has the full animation)
+- on the duplicated mesh, remove all animation data (use button Clear Anim)
+- in edit mode, delete parts of the mesh you dont want.
+- in kp tools, select 'target'(the original mesh you cloned)
+- in kp tools, press 'Animate mesh'
+- if model was aligned properly, the closest vertex from target will drive vertex in the selected object/s
+- scrub through timeline to confirm animation. Remove any 'modifiers' that may affect animation
 
-## Quake 3 .md3 conversion to Kingpin
--    Using the 'Quake 3 Model (.md3)-hy-' Import script.
--    Import lower.md3, upper.md3, head.md3 and shotgun.md3.
--    Option: Select the Leg Idle animations type(static/animated)
--    Option: Change the leg rotation angles(for running sidways)
--    Option: Change Crouch Death anim to use stand death anim 1/2/3.
--    Option: Change Scale to match a kingpin player model size.
--    Press the 'Animation.cfg' folder Button.
--    Select the .cfg file matching the imported Q3 models.
--    Hide any non Q3 scene objects.
--    Press the 'Convert to Kingpin' Button.
--    You can now export the head/body/legs models to Kingpin.
--    Note:
--    Animation.cfg may need tweeking to get the animations correct.
--    Death animations order are used based on time, to suit KP.-
+## Quake 3.md3 conversion to Kingpin
+- Using the 'Quake 3 Model (.md3)-hy-' Import script.
+- Import lower.md3, upper.md3, head.md3 and shotgun.md3.
+- Option: Select the Leg Idle animations type(static/animated)
+- Option: Change the leg rotation angles(for running sideways)
+- Option: Change Crouch Death anim to use stand death anim 1/2/3.
+- Option: Change Scale to match a kingpin player model size.
+- Press the 'Animation.cfg' folder Button.
+- Select the.cfg file matching the imported Q3 models.
+- Hide any non Q3 scene objects.
+- Press the 'Convert to Kingpin' Button.
+- You can now export the head/body/legs models to Kingpin.
+- Note:
+- Animation.cfg may need tweaking to get the animations correct.
+- Death animations order are used based on time, to suit KP.-
 
 
 ## Thanks to:
--   DarkRain
--   Bob Holcomb. for MD2_NORMALS taken from his exporter.
--   David Henry. for the documentation about the MD2 file format.
--   Bob Holcomb
--   Sebastian Lieberknecht
--   Dao Nguyen
--   Bernd Meyer
--   Damien Thebault
--   Erwan Mathieu
--   Takehiko Nawata
--   Daniel Salazar. AnimAll
--   Patrick W. Crawford. theduckcow.com 2.7/2.8 support
+- DarkRain
+- Bob Holcomb. For MD2_NORMALS taken from his exporter.
+- David Henry. For the documentation about the MD2 file format.
+- Bob Holcomb
+- Sebastian Lieberknecht
+- Dao Nguyen
+- Bernd Meyer
+- Damien Thebault
+- Erwan Mathieu
+- Takehiko Nawata
+- Daniel Salazar. AnimAll
+- Patrick W. Crawford. Theduckcow.com 2.7/2.8 support
 
 ## hypov8 plugin update log
 ========================
 v1.1.1 (blender 2.79)
-- fix teture bug
-- added importing of GL commands. for enhanced uv pricision
-- added skin search path for texcture not im nodel folder
-- added multi part player model bbox fix. all parts must be visable in sceen
-- fixed texture issue in glCommands. not checking for uv match, just vertex id
+- fix texture bug
+- added importing of GL commands. For enhanced uv precision
+- added skin search path for texture not in model folder
+- added multi part player model bbox fix. All parts must be visible in scene
+- fixed texture issue in commands. Not checking for uv match, just vertex id
 
 v1.2.0 (blender 2.80) jan 2020
 - updated to work with new blender
@@ -76,18 +76,18 @@ v1.2.1 (blender 2.80) nov 2020
 
 v1.2.2 (blender 2.79+2.80) sep 2022
 - import using 1 shape key (using animall plugin method to set keys)
-- option to switch keyframe import modes ()
+- option to switch key frame import modes ()
 - merge blender 2.7 into 1 script
-- 2.79. import textures using nodes
-- using blenders .obj addon as a base for mesh data
+- 2.79. Import textures using nodes
+- using blenders.obj addon as a base for mesh data
 
-v1.2.3 (blender 2.79+2.80) oct 2022
-- added animation toolbar, based on animall plugin. for editing shape keys and vertex animation
+V1.2.3 (blender 2.79+2.80) oct 2022
+- added animation toolbar, based on animall plugin. For editing shape keys and vertex animation
 - importing of multiple selected models added
 - added new shape key import method.(absolute mode)
 
-v1.2.4
+V1.2.4
 - added quake3 to kingpin player model converter
-- added kingpin tool to toolbar: Build grid. used to align vertex, for better exported model compresion
+- added kingpin tool to toolbar: Build grid. Used to align vertex, for better exported model compression
 - import image will no longer duplicate existing images
 - added a mesh driver function. so animated meshes can be split into sections
