@@ -53,10 +53,10 @@ Frame names can be read/set for timeline
 ## hypov8 plugin update log
 ========================
 v1.1.1 (blender 2.79)
-- fix teture bug
-- added importing of GL commands. for enhanced uv pricision
-- added skin search path for texcture not im nodel folder
-- added multi part player model bbox fix. all parts must be visable in sceen
+- fix texture bug
+- added importing of GL commands. For enhanced uv precision
+- added skin search path for texture not im model folder
+- added multi part player model bbox fix. All parts must be visible in scene
 - fixed texture issue in glCommands. not checking for uv match, just vertex id
 
 v1.2.0 (blender 2.80) jan 2020
@@ -82,12 +82,30 @@ v1.2.2 (blender 2.79+2.80) sep 2022
 - using blenders .obj addon as a base for mesh data
 
 v1.2.3 (blender 2.79+2.80) oct 2022
-- added animation toolbar, based on animall plugin. for editing shape keys and vertex animation
+- added animation toolbar, based on animall plugin.
+    for editing shape keys and vertex animation
 - importing of multiple selected models added
 - added new shape key import method.(absolute mode)
 
 v1.2.4
 - added quake3 to kingpin player model converter
-- added kingpin tool to toolbar: Build grid. used to align vertex, for better exported model compresion
+- added kingpin tool to toolbar: Build grid. used to align vertex,
+    for better exported model compression
 - import image will no longer duplicate existing images
 - added a mesh driver function. so animated meshes can be split into sections
+
+- v1.2.5
+- added high deff models. 2byte vertex, double vert/poly counts
+- updated animation tool to support collections at source
+- split up faces into 256 groups when building glcommands. speed boost but...
+
+v1.2.6
+- added 2 byte precision import/export (HD, no wobble)
+- added pcx support. pcx will be saved to .blend file
+- added mesh smooth tool. to try fix md2 compresion wobble. for HD export
+- fixed mesh grid to use proper context. compatable with older blender
+- removed unused libary and clean up
+- retarget animation now supports selecting collections as source
+- added custom vertex normal export option (use for players with seams)
+- addon preference. export file name as mesh name. with md2/mdx choice
+- added import/export butting to tool menu
