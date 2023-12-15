@@ -5,7 +5,6 @@
 '''
 
 
-
 import os
 import struct
 import bpy
@@ -137,12 +136,5 @@ def read_pcx_file(imagepath="",
     img.pixels = rgb_image
     if store_image:
         img.pack()
-
-    # image.channels = 4
-    # image.depth = 24
-    # image.file_format = 'PNG' # 'TARGA'
-    # image.is_float = False
-    # image.source = 'GENERATED'  # 'FILE'
-    # image.type = 'UV_TEST'  # 'IMAGE'
 
     return img

@@ -6,16 +6,13 @@ blender compatability tools
 '''
 
 # from ast import excepthandler
+from msilib.schema import Class
 import bpy
 from timeit import default_timer as timer
 import bmesh
-# import copy
-# import shutil
 
-# from bpy_extras.io_utils import ExportHelper
-# from math import pi
-# from mathutils import Matrix, Euler
 
+BL_VER = (1, 2, 6)
 
 # store data from md2 file in object(used for smooth tool)
 DATA_V_BYTE = "frame_vert_grid_idx"
@@ -204,6 +201,8 @@ MD2_VN = (
 )
 
 
+#########
+# print #
 def printStart_fn():
     '''
     get current time
@@ -239,8 +238,8 @@ def get_preferences(context=None):
         return context.user_preferences
     elif hasattr(context, "preferences"):   # B2.8
         return context.preferences
-    else:
-        raise Exception("Could not fetch user preferences")
+
+    raise Exception("Could not fetch user preferences")
 
 
 def get_addon_preferences(context=None):
@@ -257,6 +256,7 @@ def get_addon_preferences(context=None):
         prefs = context.user_preferences.addons.get(__package__, None)
     elif hasattr(context, "preferences"):
         prefs = context.preferences.addons.get(__package__, None)
+
     if prefs:
         return prefs.preferences
     raise Exception("Could not fetch user addon preferences")
@@ -306,6 +306,7 @@ def get_objects_selected(context):
     2.80: <context.view_layer.objects.selected>
     2.79: <context.selected_objects>
     '''
+    # .selected:  # bpy.data.objects:
     if hasattr(context, "view_layer"):
         return context.view_layer.objects.selected  # B2.8
     return context.selected_objects
@@ -421,6 +422,21 @@ def set_mode_get_obj(context):
     return edit_mode, act_obj, sel_obj
 
 
+def is_selected_mesh(objs):
+    ''' selection is all mesh objects '''
+    if len(objs) == 0:
+        print("No objects selected")
+        bpy.types.Operator.report(type={'WARNING'}, message="Nothing Selected")
+        return False
+
+    for obj in objs:
+        if obj.type != 'MESH':
+            print("Selection does not contain a valid mesh")
+            bpy.types.Operator.report(type={'WARNING'}, message="Select a valid mesh")
+            return False
+    return True
+
+
 def set_select_state(context, opt):
     '''
     2.80: <context.select_set(state=opt)>
@@ -499,25 +515,6 @@ def update_matrices(obj):
             obj.matrix_basis
 
 
-def make_annotations_old(cls):
-    ''' Converts class fields to annotations if running with Blender 2.8
-    https://theduckcow.com/2019/update-addons-both-blender-28-and-27-support/#synved-sections-1-1
-    '''
-    if bpy.app.version < (2, 80):
-        print("skip")
-        return cls
-    bl_props = {k: v for k, v in cls.__dict__.items() if isinstance(v, tuple)}
-    if bl_props:
-        if '__annotations__' not in cls.__dict__:
-            setattr(cls, '__annotations__', {})
-        annotations = cls.__dict__['__annotations__']
-        for k, v in bl_props.items():
-            annotations[k] = v
-            delattr(cls, k)
-    print("found")
-    return cls
-
-
 def make_annotations(cls):
     """Add annotation attribute to fields to avoid Blender 2.8+ warnings
     https://github.com/OpenNaja/cobra-tools/blob/master/addon_updater_ops.py"""
@@ -537,28 +534,6 @@ def make_annotations(cls):
             annotations[k] = v
             delattr(cls, k)
     return cls
-
-
-def get_user_preferences(context=None):
-    '''
-    2.80: <context.preferences.addons.get()>
-    2.79: <context.user_preferences.addons.get()>
-
-    Intermediate method for pre and post blender 2.8 grabbing preferences
-    https://github.com/OpenNaja/cobra-tools/blob/master/addon_updater_ops.py
-    '''
-    if not context:
-        context = bpy.context
-    prefs = None
-
-    if hasattr(context, "user_preferences"):
-        prefs = context.user_preferences.addons.get(__package__, None)
-    elif hasattr(context, "preferences"):   # B2.8
-        prefs = context.preferences.addons.get(__package__, None)
-
-    if prefs:
-        return prefs.preferences
-    return None
 
 
 def set_obj_group(obj, new_group=None):
@@ -593,6 +568,17 @@ def set_obj_group(obj, new_group=None):
         new_group.objects.link(obj)
 
 
+def removeInvalidSource(array):
+    ''' discard non mesh '''
+    out = []
+    for o in array:
+        if o == None:
+            continue
+        if o.type == 'MESH':
+            out.append(o)
+    return out
+
+
 IDX_IDC_V = 0   # indices (vert)
 IDX_IDC_UV = 1  # indices (vert uv)
 IDX_XYZ_V = 2   # xyz (pos vert)
@@ -602,11 +588,12 @@ IDX_I_FACE = 5  # COUNT (face)
 IDX_I_VERT = 6  # COUNT (vertex)
 IDX_I_UV = 7    # COUNT (UV)
 
-#get mesh data at current frame
+# get mesh data at current frame
 def getMeshArrays_fn(obj_group=None,
                      getUV=False,
-                     apply_modifyer=False,
-                     custom_vn=False):
+                     apply_modifyer=True,
+                     custom_vn=False,
+                     global_cords=True):
     '''Return collapsed mesh data at current frame.
 
     :param obj_group: The object data to load.
@@ -633,7 +620,7 @@ def getMeshArrays_fn(obj_group=None,
 
     # convert poly to tri
     def triangulateMesh_fn(object, depsgraph,
-                           apply_modifyer):
+                           apply_modifyer, global_cords):
         me = None
         depMesh = None
         if bpy.app.version >= (2, 80):  # B2.8
@@ -646,8 +633,6 @@ def getMeshArrays_fn(obj_group=None,
             except RuntimeError:
                 depMesh.to_mesh_clear()
                 return None
-            # if not me.loop_triangles and me.polygons:
-            #     me.calc_loop_triangles()
         else:  # B2.79
             try:
                 me = object.to_mesh(
@@ -664,8 +649,8 @@ def getMeshArrays_fn(obj_group=None,
         bmesh.ops.triangulate(bm, faces=bm.faces)  # triaglulate
         bm.to_mesh(me)
         bm.free()
-
-        me.transform(object.matrix_world)
+        if global_cords: # get vertex pos in global cords
+            me.transform(object.matrix_world)
         if object.matrix_world.determinant() < 0.0:
             me.flip_normals()
             print("Note: transform is negative, normals fliped")
@@ -759,7 +744,7 @@ def getMeshArrays_fn(obj_group=None,
         depsgraph = bpy.context.evaluated_depsgraph_get()
         for obj in obj_group:
             obj = bpy.data.objects[obj.name].evaluated_get(depsgraph)
-            me, depMesh = triangulateMesh_fn(obj, depsgraph, apply_modifyer)
+            me, depMesh = triangulateMesh_fn(obj, depsgraph, apply_modifyer, global_cords)
             if me is None:
                 continue
             faceuv = uv_layer = None
@@ -776,7 +761,7 @@ def getMeshArrays_fn(obj_group=None,
             depMesh.to_mesh_clear()
     else:  # B2.79
         for obj in obj_group:
-            me, depMesh = triangulateMesh_fn(obj, None, apply_modifyer)
+            me, depMesh = triangulateMesh_fn(obj, None, apply_modifyer, global_cords)
             if me is None:
                 continue
             faceuv = uv_texture = uv_layer = None

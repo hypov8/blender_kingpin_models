@@ -9,16 +9,20 @@ class Import_MD2(Operator, ImportHelper)
 import struct
 import os
 import bpy
-
-# from bpy.types import Operator  # B2.8
+from bpy.props import (
+    StringProperty,
+    CollectionProperty,
+    BoolProperty,
+    EnumProperty,
+    )
+from bpy.types import Operator, PropertyGroup
+from bpy_extras.io_utils import ImportHelper
 from bpy_extras.io_utils import unpack_list #, ImportHelper
 from bpy_extras.image_utils import load_image
 from mathutils import Vector
-from .pcx_file import read_pcx_file
-from .common_kp import (
-    # MDX5_MAX_TRIANGLES,
-    # MDX5_MAX_VERTS,
-    # MDX5_VERSION,
+from . pcx_file import read_pcx_file
+from . common_kp import (
+    BL_VER,
     MDX_IDENT,
     MDX_VERSION,
     MD2_IDENT,
@@ -28,6 +32,7 @@ from .common_kp import (
     DATA_F_SCALE,
     DATA_F_COUNT,
     DATA_V_COUNT,
+    get_addon_preferences,
     printStart_fn,
     printProgress_fn,
     printDone_fn,
@@ -38,13 +43,195 @@ from .common_kp import (
     set_select_state
 )
 
+# -|GUI|- import Properties
+class KINGPIN_Import_props(PropertyGroup):
+    ui_opt_store_pcx = BoolProperty(
+        name="Store .pcx Internaly",
+        description=(
+            "Loading .pcx files are not suported by blender.\n"+
+            "This will store the image into the blend file so it can be loaded.\n" +
+            "Note: you will need to manualy remove data to reduce file size later."),
+        default=True,
+    )
+    ui_opt_anim = BoolProperty(
+        name="Import Animations",
+        description="Import animation frame names to time line",
+        default=True,
+    )
+    ui_opt_anim_type = EnumProperty(
+        name="Type",
+        description="Import all frames",
+        items=(
+            #('NONE', "None", "No animations", 0),  # force no animation
+            ('SK_VERTEX', "1.Vertex Keys", "Animate using vertex data", 1),
+            ('SK_ABS', "2.Shape Key (absolute)", "Use action graph for animations", 2),
+            # ('SK_SINGLE', "Shape Keys (Single)", "Animate using only 1 shape key", 3),
+            ('SK_MULTI', "3.Shape Keys (Relative)",
+             "Add shape key's for every frame.\n" +
+             "Import speed is faster, but mesh is harder to edit.\n" +
+             "Note: this is the old plugin method.", 3)
+        ),
+        default="SK_VERTEX",
+    )
+    ui_opt_frame_names = BoolProperty(
+        name="Import Frame Names",
+        description="Import animation frame names to time line\n" +
+        "WARNING: Removes all existing marker frame names",
+        default=False,
+    )
+    ui_dupe_mat = BoolProperty(
+        name="Use Existing Material",
+        description="If material name exists, model will use the existing material",
+        default=True,
+    )
+    '''
+    # TODO SK_ABS Interpolation
+    ui_opt_sk_types = EnumProperty(
+        name="key type",
+        description="Import all frames",
+        items=(
+            ('NONE', "None", "", 0),
+            ('KEY_LINEAR', "Linear", "", 1),
+            ('KEY_CARDINAL', "Cardinal", "", 2),
+            ('KEY_CATMULL_ROM', "Catmull-Rom", "", 3),
+            ('KEY_BSPLINE', "BSpline", "", 4),
+        ),
+        default="NONE",
+    )
+    '''
+    ui_skip_cleanup = BoolProperty(
+        name="Skip Mesh Cleanup",
+        description=(
+            "Blender does some error checking on mesh before importing.\n"
+            "This may delete some faces/vertex. "
+            "Enabled: Stops any mesh validation checks.\n"
+            "  Use if you find mesh is missing valuable data.\n" +
+            "  Make sure you fix model before exporting"),
+        default=False,
+    )
+
+
+class KINGPIN_Import_Button(Operator):
+    ''' Export selection to Kingpin file format (md2/mdx) '''
+    bl_idname = "kp.import_model_button"
+    bl_label = "Import md2/mdx"
+    filename_ext = {".mdx", ".md2"}  # md2 used later
+    check_extension = True
+
+    if bpy.app.version < (2, 80):
+        filter_glob = StringProperty(default="*.md2;*.mdx", options={'HIDDEN'})
+        files = CollectionProperty(type=PropertyGroup)
+        filepath = StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
+    else:
+        filter_glob: StringProperty(default="*.md2;*.mdx", options={'HIDDEN'})
+        files: CollectionProperty(type=PropertyGroup)
+        filepath: StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
+
+    def execute(self, context):
+        # kp_import_ = context.window_manager.kp_import_
+        user_prefs = get_addon_preferences(context)
+        if user_prefs.pref_kp_import_button_use_dialog:
+            self.filepath = ""
+        else:
+            self.filepath = ""
+
+        execute_import(self, context)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+
+def draw_import(self, context):
+    ''' draw input gui '''
+    layout = self.layout
+    ui_import_ = context.window_manager.kp_import_
+    # general options
+    misc_box = layout.box()
+    misc_box.prop(ui_import_, "ui_dupe_mat")
+    misc_box.prop(ui_import_, "ui_opt_store_pcx")
+    misc_box.prop(ui_import_, "ui_skip_cleanup")
+
+    # animation options
+    anim_box = layout.box()
+    anim_box.prop(ui_import_, "ui_opt_anim")
+    if ui_import_.ui_opt_anim:
+        anim_box.prop(ui_import_, "ui_opt_anim_type")
+        # sub.prop(ui_import_, "ui_opt_sk_types")
+        # show 'frame name' option when importing animation
+        anim_box.prop(ui_import_, "ui_opt_frame_names")
+        if ui_import_.ui_opt_frame_names:
+            anim_box.label(text="WARNING: Removes existing names")
+
+
+# TODO file picker...
+def execute_import(self, context):
+    ver = BL_VER # bl_info.get("version")
+    # ui_import_ = context.window_manager.kp_import_
+
+    print("===============================================\n" +
+            "Kingpin Model Importer v%i.%i.%i" % (ver[0], ver[1], ver[2]))
+
+    if not bpy.context.mode == 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')  # , toggle=False)
+    # deselect any objects
+    for ob in bpy.data.objects:
+        set_select_state(context=ob, opt=False)
+
+    # multiple 'selected' file loader
+    valid = 1
+    folder = os.path.dirname(os.path.abspath(self.filepath))
+    for f in self.files:
+        fPath = (os.path.join(folder, f.name))
+        print("===============================================")
+        ret = load_kp_model(self, context, fPath)
+
+        if ret == 2:
+            valid = 2  # stop print
+        if not ret:
+            print("Error: in %s" % fPath)
+            return {'FINISHED'}
+
+    get_layers(bpy.context).update()  # v1.2.2
+    if valid == 1:
+        self.report({'INFO'}, "File '%s' imported" % self.filepath)
+    else:
+        self.report({'WARNING'}, "Warning: see console")
+
+
+class KINGPIN_Import_Dialog(Operator, ImportHelper):
+    '''Import Kingpin format file (md2/mdx)'''
+    bl_idname = "kp.import_model_dialog"
+    bl_label = "Import md2/mdx"
+    filename_ext = {".mdx", ".md2"}
+
+    if bpy.app.version < (2, 80):
+        filter_glob = StringProperty(default="*.md2;*.mdx", options={'HIDDEN'})
+        files = CollectionProperty(type=PropertyGroup)
+        filepath = StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
+    else:
+        filter_glob: StringProperty(default="*.md2;*.mdx", options={'HIDDEN'})
+        files: CollectionProperty(type=PropertyGroup)
+        filepath: StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
+
+    def invoke(self, context, event):
+        print("invoke")
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        execute_import(self, context)
+        return {'FINISHED'}
+
+    def draw(self, context):
+        draw_import(self, context)
+
 
 class Kingpin_Model_Reader:
     ''' Kingpin Model Reader '''
 
     def makeObject(self):
-        # if bpy.app.version >= (2, 80):  # nodes
-        #    from bpy_extras import node_shader_utils
 
         self.start_time = printStart_fn()  # reset timmer
         prefix = "Generating Mesh"
@@ -69,7 +256,6 @@ class Kingpin_Model_Reader:
             self.start_time = printStart_fn()  # reset timmer
             prefix = ""
             suffix = "Generating Materials"
-            # printProgress_fn(self, 0, prefix)  # print progress
             print("========")
             #      "Generate Materials:")
             print("skins: %i" % len(self.skins))  # print count
@@ -377,8 +563,6 @@ class Kingpin_Model_Reader:
                 if not data[1] == MDX_VERSION:
                     raise NameError("Invalid MDX file(version)")
                 # fill header details
-                self.ident = data[0]
-                self.version = data[1]
                 self.skinWidth = max(1, data[2])
                 self.skinHeight = max(1, data[3])
                 self.framesize = data[4]
@@ -386,10 +570,7 @@ class Kingpin_Model_Reader:
                 self.numVerts = data[6]
                 self.numTris = data[7]
                 self.numGLCmds = data[8]
-                if self.ui_opt_anim:
-                    self.numFrames = data[9]
-                else:
-                    self.numFrames = 1
+                self.numFrames = 1 if not self.ui_opt_anim else data[9]
                 self.ofsSkins = data[13]
                 self.ofsTris = data[14]
                 self.ofsFrames = data[15]
@@ -402,8 +583,6 @@ class Kingpin_Model_Reader:
                 if not data[1] == MD2_VERSION:
                     raise NameError("Invalid MD2 file(version)")
                 # fill header details
-                self.ident = data[0]
-                self.version = data[1]
                 self.skinWidth = max(1, data[2])
                 self.skinHeight = max(1, data[3])
                 self.framesize = data[4]
@@ -412,10 +591,7 @@ class Kingpin_Model_Reader:
                 self.numUV = data[7]
                 self.numTris = data[8]
                 self.numGLCmds = data[9]
-                if self.ui_opt_anim:
-                    self.numFrames = data[10]
-                else:
-                    self.numFrames = 1
+                self.numFrames = 1 if not self.ui_opt_anim else data[10]
                 self.ofsSkins = data[11]
                 self.ofsUV = data[12]
                 self.ofsTris = data[13]
@@ -644,46 +820,35 @@ def asciiz(s):
 
 
 # def Import_MD2_fn(self, filename):
-def load(self,
-         filepath,
-         *,
-         ui_opt_anim=True,
-         ui_opt_anim_type='SK_VERTEX',
-         ui_opt_frame_names=False,
-         ui_opt_sk_types=False,
-         relpath=None,
-         ui_dupe_mat=True,
-         ui_skip_cleanup=False,
-         ui_opt_store_pcx=True
-         ):
+def load_kp_model(self, context, filepath):
 
+    ui_import_ = context.window_manager.kp_import_
     ext = os.path.splitext(os.path.basename(filepath))[1]
     if not ext == '.md2' and not ext == '.mdx':
         raise RuntimeError("ERROR: Incorrect file extension. Only md2 or mdx")
-        return 0
+
+    md2 = Kingpin_Model_Reader()
+    md2.object = None
+    md2.ui_opt_anim = ui_import_.ui_opt_anim
+    md2.ui_opt_anim_type = ui_import_.ui_opt_anim_type
+    md2.ui_opt_frame_names = ui_import_.ui_opt_frame_names
+    md2.ui_dupe_mat = ui_import_.ui_dupe_mat
+    md2.ui_skip_cleanup = ui_import_.ui_skip_cleanup
+    # md2.ui_opt_sk_types = ui_import_.ui_opt_sk_types
+    md2.ui_opt_store_pcx = ui_import_.ui_opt_store_pcx
+    md2.self = self
+
+    if ext == '.mdx':
+        md2.isMdx = True
+        md2.ident = 0
+        md2.version = 0
     else:
-        md2 = Kingpin_Model_Reader()
-        md2.object = None
-        md2.ui_opt_anim = ui_opt_anim
-        md2.ui_opt_anim_type = ui_opt_anim_type
-        md2.ui_opt_frame_names = ui_opt_frame_names
-        md2.ui_dupe_mat = ui_dupe_mat
-        md2.ui_skip_cleanup = ui_skip_cleanup
-        md2.ui_opt_sk_types = ui_opt_sk_types
-        md2.ui_opt_store_pcx = ui_opt_store_pcx
-        md2.self = self
+        md2.isMdx = False
+        md2.ident = 0
+        md2.version = 0
 
-        if ext == '.mdx':
-            md2.isMdx = True
-            md2.ident = 0
-            md2.version = 0
-        else:
-            md2.isMdx = False
-            md2.ident = 0
-            md2.version = 0
+    md2.valid = 1  # disable "done"
+    md2.read_file(filepath)
+    md2.makeObject()
 
-        md2.valid = 1  # disable "done"
-        md2.read_file(filepath)
-        md2.makeObject()
-
-        return md2.valid
+    return md2.valid

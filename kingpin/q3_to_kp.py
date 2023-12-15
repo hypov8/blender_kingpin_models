@@ -12,38 +12,28 @@ import bpy
 from bpy.types import (
     Operator,
     Panel,
-    WindowManager,
-    # AddonPreferences,
+    PropertyGroup
 )
-
 from bpy.props import (
     BoolProperty,
     StringProperty,
     EnumProperty,
     IntProperty,
-    PointerProperty,
     FloatProperty
 )
-# from bpy.app.handlers import persistent
-
-
 from collections import namedtuple
-from math import radians  # , pi, cos, sin
-
-from mathutils import Vector, Matrix  # , Quaternion, Euler
-# from typing import List
-
-from .common_kp import (
+from math import radians
+from mathutils import Vector, Matrix
+from . common_kp import (
     make_annotations,
     set_select_state,
-    # get_objects_all,
     set_obj_group,
     update_matrices
 )
 
 
 # Property DEFINITIONS
-class KINGPIN_Q3_to_KP_Properties(bpy.types.PropertyGroup):
+class KINGPIN_Q3toKP_props(PropertyGroup):
     #############
     # UI varables
     # stand
@@ -211,8 +201,8 @@ class VIEW3D_PT_Q3_to_KP_GUI(Panel):
     #  UI
 
     def draw(self, context):
-        kp_tool_q3tokp = context.window_manager.kp_tool_q3tokp
-        # context.window_manager.kp_tool_q3tokp
+        kp_tool_q3tokp = context.window_manager.kp_q3tokp_
+        # context.window_manager.kp_q3tokp_
         layout = self.layout
         col = layout.column(align=True)
 
@@ -284,7 +274,7 @@ class KINGPIN_UI_BUTTON_CFG_File(Operator):
     )
 
     def execute(self, context):
-        key_prop = context.window_manager.kp_tool_q3tokp
+        key_prop = context.window_manager.kp_q3tokp_
         # fdir = self.properties.filepath
         # context.scene.my_addon.some_identifier = fdir
         return{'FINISHED'}
@@ -300,8 +290,8 @@ class KINGPIN_UI_BUTTON_GO(Operator):
 
     def execute(self, context):
         '''convert q3 models to kp animations'''
-        key_prop = context.window_manager.kp_tool_q3tokp
-        # key_prop = WindowManager.kp_tool_q3tokp
+        key_prop = context.window_manager.kp_q3tokp_
+        # key_prop = WindowManager.kp_q3tokp_
 
         # animation.cfg with 25 leg/body events (structure(start,end)
         self.Q3_Anims = []
@@ -679,25 +669,26 @@ class KINGPIN_UI_BUTTON_GO(Operator):
                     # ========================================= #
                     #  get every q3 keyframe. paste to kp frame %0.f
                     #  make sure we have a start and end frame (0-1)
-                    for q3_key in range(frames_total_q3):  # do first to last frame (can be a single frame)
+                    # do first to last frame (can be a single frame)
+                    for q3_key in range(frames_total_q3):
                         time_kp = 0
                         time_q3 = 0
                         time_kp_end = 0
                         q3_total = frames_total_q3 - 1
 
-                        if (q3_key == 0):
+                        if q3_key == 0:
                             # Q3 first frame
                             time_kp = frame_start_kp
-                            time_q3 = (frameID_start_q3)
-                        elif (q3_key == 1) and (frames_total_q3 == 1):
+                            time_q3 = frameID_start_q3
+                        elif q3_key == 1 and frames_total_q3 == 1:
                             # Q3 only has 1 frame
                             time_kp = frame_end_kp
-                            time_q3 = (frameID_start_q3)
+                            time_q3 = frameID_start_q3
                         elif (q3_key == q3_total) and (IsUsingDeath_FPS is False):
                             # last Q3 frame (using timeline)
                             time_kp = frame_end_kp
-                            time_q3 = (frameID_start_q3 + q3_key)
-                        elif (q3_key <= q3_total):
+                            time_q3 = frameID_start_q3 + q3_key
+                        elif q3_key <= q3_total:
                             tween_fr = float((frames_total_kp - 1.0) / q3_total)
                             if IsUsingDeath_FPS:
                                 tween_fr = frames_fps_multiply_q3
@@ -714,12 +705,12 @@ class KINGPIN_UI_BUTTON_GO(Operator):
                         # end q3_keys setup
 
                         # add null key to end OF sequence
-                        if (frames_total_q3 == 1 or (q3_key == q3_total and time_kp < frame_end_kp)):
+                        if frames_total_q3 == 1 or (q3_key == q3_total and time_kp < frame_end_kp):
                             time_kp_end = frame_end_kp
 
                         ###########################################
                         # start copying animation for each q3 frame
-                        if (obj_isTag == 1):
+                        if obj_isTag == 1:
                             # fix for wrong animation.cfg. use last frame
                             if time_q3 > len(fCurveArray[0]) - 1:
                                 time_q3 = len(fCurveArray[0]) - 1
@@ -762,7 +753,7 @@ class KINGPIN_UI_BUTTON_GO(Operator):
 
                 #############################
                 # legs to run side (sidestep)
-                if self.tag_body_nodeID and (body_part_f == MODEL_LEGS) and (obj_isTag == 0):
+                if self.tag_body_nodeID and body_part_f == MODEL_LEGS and obj_isTag == 0:
                     # is legs mesh
                     twistR_timer = (131, 132, 133, 134, 135, 136,  # right 131-136
                                     159, 160, 161, 162, 163, 164)  # right 159-164
@@ -815,7 +806,7 @@ class KINGPIN_UI_BUTTON_GO(Operator):
             # end move_tagToTop
 
             for obj in self.objects:
-                if not (obj.type == 'MESH') and not (obj.type == 'EMPTY'):
+                if not obj.type == 'MESH' and not obj.type == 'EMPTY':
                     continue
 
                 firstletter = obj.name[0:2]  # substring obj.name 1 2 as name
@@ -825,7 +816,7 @@ class KINGPIN_UI_BUTTON_GO(Operator):
                 # asigne each part to a group. eg.. tag_torso to group_body
                 # TODO remove unused tags
                 discard = True
-                if (tagname == "tag_"):
+                if tagname == "tag_":
                     if objectsName[:9] == "tag_torso":
                         if objectsName[9:13] == ".low":
                             array_legs.append(obj)
@@ -846,13 +837,13 @@ class KINGPIN_UI_BUTTON_GO(Operator):
                         print("%-14s %s" % ("Discard tag:", objectsName))
                         continue
                 #  end tag asigments
-                elif (firstletter == "l_"):
+                elif firstletter == "l_":
                     array_legs.append(obj)
-                elif (firstletter == "u_"):
+                elif firstletter == "u_":
                     array_body.append(obj)
-                elif (firstletter == "w_"):
+                elif firstletter == "w_":
                     array_wep.append(obj)
-                elif (firstletter == "h_"):
+                elif firstletter == "h_":
                     array_head.append(obj)
                 else:
                     print("%-14s %s" % ("Discard object:", obj.name))
@@ -1183,26 +1174,20 @@ class KINGPIN_UI_BUTTON_ABOUT(Operator):
         # self.layout.label(text=self.msg)
 
 
-classes = [
-    KINGPIN_Q3_to_KP_Properties,  # toolbar
+classes = (
+    # KINGPIN_Q3toKP_props,  # toolbar
     KINGPIN_UI_BUTTON_CFG_File,
     KINGPIN_UI_BUTTON_GO,
     KINGPIN_UI_BUTTON_ABOUT,
     VIEW3D_PT_Q3_to_KP_GUI
-]
+)
 
 
 def register():
     for cls in classes:
         make_annotations(cls)  # v1.2.2
         bpy.utils.register_class(cls)
-    # bpy.types.WindowManager.kp_tool_anim = PointerProperty(type=AnimallProperties_KP)
-    WindowManager.kp_tool_q3tokp = PointerProperty(type=KINGPIN_Q3_to_KP_Properties)
-
 
 def unregister():
     for cls in classes:
         bpy.utils.unregister_class(cls)
-    # bpy.app.handlers.frame_change_post.remove(post_frame_change)
-    # del bpy.types.WindowManager.kp_tool_anim
-    del WindowManager.kp_tool_q3tokp
