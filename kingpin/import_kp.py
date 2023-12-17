@@ -10,14 +10,12 @@ import struct
 import os
 import bpy
 from bpy.props import (
-    StringProperty,
-    CollectionProperty,
     BoolProperty,
     EnumProperty,
     )
 from bpy.types import Operator, PropertyGroup
 from bpy_extras.io_utils import ImportHelper
-from bpy_extras.io_utils import unpack_list #, ImportHelper
+from bpy_extras.io_utils import unpack_list
 from bpy_extras.image_utils import load_image
 from mathutils import Vector
 from . pcx_file import read_pcx_file
@@ -32,6 +30,8 @@ from . common_kp import (
     DATA_F_SCALE,
     DATA_F_COUNT,
     DATA_V_COUNT,
+    KINGPIN_FileSelect_md2_Params,
+    check_version,
     get_addon_preferences,
     printStart_fn,
     printProgress_fn,
@@ -111,21 +111,12 @@ class KINGPIN_Import_props(PropertyGroup):
     )
 
 
-class KINGPIN_Import_Button(Operator):
+class KINGPIN_Import_Button(Operator, KINGPIN_FileSelect_md2_Params):
     ''' Export selection to Kingpin file format (md2/mdx) '''
     bl_idname = "kp.import_model_button"
     bl_label = "Import md2/mdx"
     filename_ext = {".mdx", ".md2"}  # md2 used later
     check_extension = True
-
-    if bpy.app.version < (2, 80):
-        filter_glob = StringProperty(default="*.md2;*.mdx", options={'HIDDEN'})
-        files = CollectionProperty(type=PropertyGroup)
-        filepath = StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
-    else:
-        filter_glob: StringProperty(default="*.md2;*.mdx", options={'HIDDEN'})
-        files: CollectionProperty(type=PropertyGroup)
-        filepath: StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
 
     def execute(self, context):
         # kp_import_ = context.window_manager.kp_import_
@@ -145,24 +136,29 @@ class KINGPIN_Import_Button(Operator):
 
 def draw_import(self, context):
     ''' draw input gui '''
-    layout = self.layout
     ui_import_ = context.window_manager.kp_import_
+
+    layout = self.layout
+
     # general options
-    misc_box = layout.box()
-    misc_box.prop(ui_import_, "ui_dupe_mat")
-    misc_box.prop(ui_import_, "ui_opt_store_pcx")
-    misc_box.prop(ui_import_, "ui_skip_cleanup")
+    box1 = layout.box()
+    row = box1.column_flow(columns=1, align=True)
+    row.prop(ui_import_, "ui_dupe_mat")
+    row.prop(ui_import_, "ui_opt_store_pcx")
+    row.prop(ui_import_, "ui_skip_cleanup")
 
     # animation options
-    anim_box = layout.box()
-    anim_box.prop(ui_import_, "ui_opt_anim")
-    if ui_import_.ui_opt_anim:
-        anim_box.prop(ui_import_, "ui_opt_anim_type")
-        # sub.prop(ui_import_, "ui_opt_sk_types")
-        # show 'frame name' option when importing animation
-        anim_box.prop(ui_import_, "ui_opt_frame_names")
-        if ui_import_.ui_opt_frame_names:
-            anim_box.label(text="WARNING: Removes existing names")
+    box2 = layout.box()
+    row1 = box2.column_flow(columns=1, align=True)
+    row1.prop(ui_import_, "ui_opt_anim")
+    row2 = box2.column_flow(columns=1, align=True)
+    row2.enabled = ui_import_.ui_opt_anim
+    row2.prop(ui_import_, "ui_opt_anim_type")
+    # sub.prop(ui_import_, "ui_opt_sk_types")
+    # show 'frame name' option when importing animation
+    row2.prop(ui_import_, "ui_opt_frame_names")
+    if ui_import_.ui_opt_frame_names:
+        row2.label(text="WARNING: Removes existing names")
 
 
 # TODO file picker...
@@ -171,7 +167,7 @@ def execute_import(self, context):
     # ui_import_ = context.window_manager.kp_import_
 
     print("===============================================\n" +
-            "Kingpin Model Importer v%i.%i.%i" % (ver[0], ver[1], ver[2]))
+          "Kingpin Model Importer v%i.%i.%i" % (ver[0], ver[1], ver[2]))
 
     if not bpy.context.mode == 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')  # , toggle=False)
@@ -193,30 +189,20 @@ def execute_import(self, context):
             print("Error: in %s" % fPath)
             return {'FINISHED'}
 
-    get_layers(bpy.context).update()  # v1.2.2
+    get_layers(bpy.context).update()
     if valid == 1:
         self.report({'INFO'}, "File '%s' imported" % self.filepath)
     else:
         self.report({'WARNING'}, "Warning: see console")
 
 
-class KINGPIN_Import_Dialog(Operator, ImportHelper):
+class KINGPIN_Import_Dialog(Operator, ImportHelper, KINGPIN_FileSelect_md2_Params):
     '''Import Kingpin format file (md2/mdx)'''
     bl_idname = "kp.import_model_dialog"
     bl_label = "Import md2/mdx"
     filename_ext = {".mdx", ".md2"}
 
-    if bpy.app.version < (2, 80):
-        filter_glob = StringProperty(default="*.md2;*.mdx", options={'HIDDEN'})
-        files = CollectionProperty(type=PropertyGroup)
-        filepath = StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
-    else:
-        filter_glob: StringProperty(default="*.md2;*.mdx", options={'HIDDEN'})
-        files: CollectionProperty(type=PropertyGroup)
-        filepath: StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
-
     def invoke(self, context, event):
-        print("invoke")
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
@@ -297,7 +283,7 @@ class Kingpin_Model_Reader:
                 mat_links.new(node_diff.outputs['BSDF'], node_out_mat.inputs['Surface'])
                 mat_links.new(node_tex.outputs['Color'], node_diff.inputs['Color'])
 
-                if bpy.app.version < (2, 80, 0):  # output blender render v2.79
+                if check_version(2, 80, 0) < 0:  # output blender render v2.79
                     node_output = mat_nodes.new(type='ShaderNodeOutput')
                     mat_links.new(node_tex.outputs['Color'], node_output.inputs['Color'])
                     node_output.location = Vector((250, -120))

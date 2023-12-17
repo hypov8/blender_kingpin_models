@@ -33,17 +33,19 @@ from . common_kp import (
     IDX_I_FACE,
     IDX_I_VERT,
     IDX_I_UV,
+    KINGPIN_FileSelect_folder_Params,
+    KINGPIN_FileSelect_md2_Params,
     printStart_fn,
     printProgress_fn,
     printDone_fn,
     getMeshArrays_fn,
-    set_mode_get_obj,
-    removeInvalidSource,
     is_selected_mesh,
-    set_select_state,
+    get_mesh_objects,
     get_objects_all,
     get_objects_selected,
     get_addon_preferences,
+    set_mode_get_obj,
+    set_select_state,
     # MDX5_VERSION
 )
 
@@ -167,21 +169,12 @@ class KINGPIN_Export_props(PropertyGroup):
     )
 
 
-class KINGPIN_Export_Button(Operator):
+class KINGPIN_Export_Button(Operator, KINGPIN_FileSelect_md2_Params):
     ''' Export selection to Kingpin file format (md2/mdx) '''
     bl_idname = "kp.export_button_model"
     bl_label = "Export model"
     filename_ext = {".mdx", ".md2"}  # md2 used later
     check_extension = True  # 2.8 allow typing md2/mdx
-
-    if bpy.app.version < (2, 80):
-        directory = StringProperty()
-        filter_glob = StringProperty(default="", options={'HIDDEN'})
-        filepath = StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
-    else:
-        directory: StringProperty()
-        filter_glob: StringProperty(default="", options={'HIDDEN'})
-        filepath: StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
 
     def execute(self, context):
         kp_export_ = context.window_manager.kp_export_
@@ -218,27 +211,21 @@ class KINGPIN_Export_Button_File(Operator):
         return {'FINISHED'}
 
 
-class KINGPIN_Export_Button_Folder(Operator):
+class KINGPIN_Export_Button_Folder(Operator, KINGPIN_FileSelect_folder_Params):
     ''' export folder selector '''
     bl_idname = "kp.export_button_folder"
-    bl_label = "Select Folder"
+    bl_label = "Select Folder" # icon
     check_extension = True
-
-    if bpy.app.version < (2, 80):
-        directory = StringProperty(name="Outdir Path", description="Where I will save my stuff")# subtype='DIR_PATH'
-        filter_folder = BoolProperty(default=True,options={"HIDDEN"})
-    else:
-        directory: StringProperty(name="Outdir Path", description="Where I will save my stuff")# subtype='DIR_PATH'
-        filter_folder: BoolProperty(default=True,options={"HIDDEN"})
 
     def execute(self, context):
         ui_export_ = context.window_manager.kp_export_
-        ui_export_.ui_opt_export_path =self.directory
+        ui_export_.ui_opt_export_path = self.directory
         return {'FINISHED'}
 
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
+
 
 def draw_export(self, context):
     ui_export_ = context.window_manager.kp_export_
@@ -248,19 +235,20 @@ def draw_export(self, context):
     layout.prop(ui_export_, "ui_opt_tex_name")  # testure source (dropdown)
 
     # misc options box
-    miscBox = layout.box()
-    miscBox.prop(ui_export_, "ui_opt_apply_modify")  # apply movifiers
-    if ui_export_.ui_opt_apply_modify:
-        miscBox.prop(ui_export_, "ui_opt_cust_vn")   # custom vertex normals
+    box = layout.box()
+    miscBox = box.column_flow(columns=1, align=True)
+    # miscBox.prop(ui_export_, "ui_opt_apply_modify")  # apply movifiers
+    # if ui_export_.ui_opt_apply_modify:
+    miscBox.prop(ui_export_, "ui_opt_cust_vn")   # custom vertex normals
     miscBox.prop(ui_export_, "ui_opt_is_hd")         # HD version
     miscBox.prop(ui_export_, "ui_opt_use_hitbox")    # merge hitbox
     miscBox.prop(ui_export_, "ui_opt_is_player")     # playermodel
 
     # animation box
-    animBox = layout.box()
+    box = layout.box()
+    animBox = box.column_flow(columns=1, align=True)
     animBox.prop(ui_export_, "ui_opt_animated")   # export animation
-    # if ui_export_.ui_opt_animated:
-    sub = animBox.column()
+    sub = animBox.column_flow(columns=1, align=True)
     sub.prop(ui_export_, "ui_opt_fr_start")           # frame start number
     sub.prop(ui_export_, "ui_opt_fr_end")             # frame end number
     sub.enabled = ui_export_.ui_opt_animated
@@ -273,24 +261,24 @@ def draw_export(self, context):
 
 
 def execute_export(self, context):
-    # ui_export_ = context.window_manager.kp_export_
+    ''' export selected models '''
     # print headder
     ver = BL_VER # bl_info.get("version")
     print("=======================\n" +
-            "Kingpin Model Exporter.\n" +
-            "Version: (%i.%i.%i)\n" % (ver[0], ver[1], ver[2]) +
-            "=======================")
+          "Kingpin Model Exporter.\n" +
+          "Version: (%i.%i.%i)\n" % (ver[0], ver[1], ver[2]) +
+          "=======================")
 
     #store current frame
     cur_frame = bpy.context.scene.frame_current
 
     # store selected objects
     cur_mode, act_obj, sel_obj = set_mode_get_obj(context)
-    self.objects_sel = removeInvalidSource(sel_obj)
+    self.objects_sel = get_mesh_objects(sel_obj)
     # store all scene objects
-    self.objects_vis = removeInvalidSource(context.visible_objects)
+    self.objects_vis = get_mesh_objects(context.visible_objects)
     # valid mesh?
-    if not is_selected_mesh(self.objects_sel):
+    if not is_selected_mesh(self, self.objects_sel):
         return {'FINISHED'}
 
     # deselect any objects
@@ -328,19 +316,12 @@ def execute_export(self, context):
     print("=======================")
 
 
-class KINGPIN_Export_Dialog(Operator, ExportHelper):
+class KINGPIN_Export_Dialog(Operator, ExportHelper, KINGPIN_FileSelect_md2_Params):
     ''' Export selection to Kingpin file format (md2/mdx) '''
     bl_idname = "kp.export_model_dialog"
     bl_label = "Export md2/mdx"
     filename_ext = {".mdx", ".md2"}  # md2 used later
     check_extension = False  # 2.8 allow typing md2/mdx
-
-    if bpy.app.version < (2, 80):
-        filter_glob = StringProperty(default="*.md2;*.mdx", options={'HIDDEN'})
-        filepath = StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
-    else:
-        filter_glob: StringProperty(default="*.md2;*.mdx", options={'HIDDEN'})
-        filepath: StringProperty(maxlen=1024, subtype='FILE_PATH', options={'HIDDEN', 'SKIP_SAVE'})
 
     def execute(self, context):
         execute_export(self, context)
@@ -567,7 +548,7 @@ def setup_data_fn(self, context):
         #  end findStripLength_fn
 
         def findFanLength_fn(usedFace, mesh, startTri, startVert, numFaces,
-                            cmdTris, cmdVerts, cmdUV):
+                             cmdTris, cmdVerts, cmdUV):
             ''' triangle strips '''
             # usedFace_ = copy.copy(usedFace)  # duplicate
 
@@ -597,9 +578,9 @@ def setup_data_fn(self, context):
                     for k in range(3):
                         # find 2 vertex that share vertex/UV data
                         if((m1 == face_data[triIdx * 3 + k]) and  # compare vertex...
-                        (m2 == face_data[triIdx * 3 + ((k + 1) % 3)]) and
-                        (u1 == uv_data[triIdx * 3 + k]) and  # compare texture indices
-                        (u2 == uv_data[triIdx * 3 + ((k + 1) % 3)])):
+                           (m2 == face_data[triIdx * 3 + ((k + 1) % 3)]) and
+                           (u1 == uv_data[triIdx * 3 + k]) and  # compare texture indices
+                           (u2 == uv_data[triIdx * 3 + ((k + 1) % 3)])):
 
                             # move to next vertex loop
                             m1 = face_data[triIdx * 3 + ((k + 2) % 3)]
@@ -965,13 +946,11 @@ def setup_data_fn(self, context):
                         # dot = np.dot(vnorm, MD2_VN[iN])
                         # dot = sum(vnorm[j] * MD2_VN[iN][j] for j in range(3))
                         dot = vn[0] * MD2_VN[iN][0] + vn[1] * MD2_VN[iN][1] + vn[2] * MD2_VN[iN][2]
-
                         if dot > maxDot:
                             maxDot = dot
                             bestIdx = iN
                             if maxDot > 0.99:  # stop wasting time
                                 break
-
                     vn_tmp[i] = bestIdx  # normal index
                 m_tmp.append(vn_tmp)  # object
                 del vn_tmp
@@ -1243,7 +1222,7 @@ def Export_MD2_fn(self, context, filepath):
     self.ui_opt_tex_name = ui_export_.ui_opt_tex_name
     self.ui_opt_fr_start = ui_export_.ui_opt_fr_start
     self.ui_opt_fr_end = ui_export_.ui_opt_fr_end
-    self.ui_opt_apply_modify = ui_export_.ui_opt_apply_modify
+    self.ui_opt_apply_modify = True #ui_export_.ui_opt_apply_modify
     self.ui_opt_is_hd = ui_export_.ui_opt_is_hd
     self.ui_opt_cust_vn = ui_export_.ui_opt_cust_vn
 

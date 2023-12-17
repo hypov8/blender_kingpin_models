@@ -1,13 +1,9 @@
+'''
+convert q3 models to kingpin
+'''
 
-# from ast import excepthandler
-# from inspect import getfile
-# from logging import exception
-# from tkinter import EXCEPTION
-from ast import ExceptHandler  # , Try, excepthandler
-# from distutils.log import error
-# from logging import raiseExceptions
-# from posixpath import split
-# from xml.dom.pulldom import ErrorHandler
+from ast import ExceptHandler
+from pathlib import Path  # , Try, excepthandler
 import bpy
 from bpy.types import (
     Operator,
@@ -25,7 +21,10 @@ from collections import namedtuple
 from math import radians
 from mathutils import Vector, Matrix
 from . common_kp import (
+    KINGPIN_FileSelect_q3cfg_Params,
+    check_version,
     make_annotations,
+    set_ui_panel_string,
     set_select_state,
     set_obj_group,
     update_matrices
@@ -176,113 +175,119 @@ class KINGPIN_Q3toKP_props(PropertyGroup):
     )
     ############
     # file input
-    ui_btn_getfile = StringProperty(
-        name="Animation.cfg",
-        description="Get frame sequence for conversion",
-        default="D:/Quake3/baseq3/models/players/bones/animation.cfg",  # todo
+    ui_path_cfg_file = StringProperty(
+        name="", #Animation.cfg",
+        description="animation.cfg path",
+        default="animation.cfg",
         maxlen=1024,
         options={'HIDDEN'},
-        subtype='FILE_PATH'  # 'DIR_PATH')
-    )
-    filter_glob = StringProperty(
-        default="*.cfg",
-        options={'HIDDEN'},
+        subtype='NONE' #FILE_PATH'
     )
 
 
 # GUI
 class VIEW3D_PT_Q3_to_KP_GUI(Panel):
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'TOOLS' if bpy.app.version < (2, 80, 0) else 'UI'
+    bl_region_type = set_ui_panel_string()
     bl_category = 'Kingpin'
     bl_label = 'QUAKE3 to KP'
     bl_options = {'DEFAULT_CLOSED'}
-    # bl_options = {'HEADER_LAYOUT_EXPAND'}
-    #  UI
 
     def draw(self, context):
         kp_tool_q3tokp = context.window_manager.kp_q3tokp_
         # context.window_manager.kp_q3tokp_
         layout = self.layout
-        col = layout.column(align=True)
 
-        # group "No Leg Animation For.."
-        # box = col.box()
-        # row = box.row()  # align=True #
-        row = col.row()
-        row.alignment = 'CENTER'  # 'EXPAND'
-        row.label(text="Legs Anims: Stand")
+        box1 = layout.box()
+        row = box1.row(align=True)
         # STANDING
-        row = col.row()
+        row.alignment = 'CENTER'
+        row.label(text="Leg Anims: Stand")
+        row = box1.column_flow(columns=2, align=True)
         row.prop(kp_tool_q3tokp, "ui_stand_tg_idle")  # stand_tg_idle
         row.prop(kp_tool_q3tokp, "ui_stand_attack")  # tg, pipe, pistol
-        row = col.row()
         row.prop(kp_tool_q3tokp, "ui_stand_p_idle")
         row.prop(kp_tool_q3tokp, "ui_stand_taunt")  # stand_taunt
-        row = col.row()
         row.prop(kp_tool_q3tokp, "ui_stand_ma_idle")  # stand_ma_idle
         row.prop(kp_tool_q3tokp, "ui_stand_ladder")  # clmb_loop_
 
         # CROUCH
-        row = col.row()
+        box2 = layout.box()
+        row = box2.row(align=True)
         row.alignment = 'CENTER'
-        row.label(text="Legs Anims: Crouch")
-        row = col.row()
+        row.label(text="Leg Anims: Crouch")
+        row = box2.column_flow(columns=2, align=True)
         row.prop(kp_tool_q3tokp, "ui_crouch_idle")  # crouch_idle
         row.prop(kp_tool_q3tokp, "ui_crouch_shoot")  # crouch_shoot
-        row = col.row()
+        row = box2.row()
         row.prop(kp_tool_q3tokp, "ui_cr_death_anim")  # death anim animation
-        row = col.row()
-        row.prop(kp_tool_q3tokp, "ui_ladder_anim")  # death anim animation
 
-        row = col.row()
+        # RUN SIDEWAYS
+        box3 = layout.box()
+        row = box3.row(align=True)
         row.alignment = 'CENTER'
-        row.label(text="Run Sideways: Angle")
-        row = col.row(align=False)
+        row.label(text="Legs Run Sideways: Angle")
+        row = box3.column_flow(columns=2, align=True)
         row.prop(kp_tool_q3tokp, "ui_rotate_leg_left")  # left leg angle
         row.prop(kp_tool_q3tokp, "ui_rotate_leg_right")  # right leg angle
 
-        row = col.row()
+        # MISC
+        box4 = layout.box()
+        row = box4.column_flow(columns=1, align=True)
+        row.prop(kp_tool_q3tokp, "ui_ladder_anim")  # death anim animation
         row.prop(kp_tool_q3tokp, "ui_scale")  # scale
-
-        row = col.row()
         row.prop(kp_tool_q3tokp, "ui_use_framerate_for_death")  # Match Death FPS
-        row = col.row()
         row.prop(kp_tool_q3tokp, "ui_add_timeline")  # timeline names
-        row = col.row()
-        row.prop(kp_tool_q3tokp, "ui_btn_getfile", text="")  # file <Animation.cfg>
-        row = col.row()
+        # set_layout_separator(col, factor=0.3)
+
+        row = layout.row(align=True)
+        # file/folder string
+        col1 = row.column()
+        col1.alignment = 'EXPAND'
+        col1.enabled = False  # input box (no edit)
+        col1.prop(kp_tool_q3tokp, "ui_path_cfg_file")
+        # folder button
+        col2 = row.column()
+        col2.alignment = 'RIGHT'
+        col2.operator("kp.ui_btn_get_cfg_file",
+            icon='FILE_FOLDER', text="")  # file <Animation.cfg>
+
+        row = layout.row()
         row.scale_y = 1.2
         row.alignment = 'CENTER'
         row.operator("kp.ui_btn_do_conversion")  # Convert to Kingpin
-        row = col.row()
+        row = layout.row()
         row.alignment = 'CENTER'
         row.operator("kp.ui_btn_info", text="Help...")  # Info
 
 
 # button CONFIG
-class KINGPIN_UI_BUTTON_CFG_File(Operator):
-    # ui_btn_getfile             "Animation.cfg "         align:#centre     height:22 width:136 tooltip:"select file"
-    bl_idname = "kp.ui_btn_getfile"
+class KINGPIN_UI_BUTTON_CFG_File(Operator, KINGPIN_FileSelect_q3cfg_Params):
+    ''' convert q3 config file button '''
+    bl_idname = "kp.ui_btn_get_cfg_file"
     bl_label = "Animation.cfg"
-    bl_description = ("Enable: Animations Speed/FPS match Q3\nThis wil place enpty frames at end\n"
-                      "Disable: Will squeeze/stretch animation to fit into kp timeline")
+    bl_description = "Open a Quake3 animation config file.\n"
     filename_ext = "cfg"
-    filter_glob = StringProperty(
-        default="*.cfg",
-        options={'HIDDEN'},  # TODO
-    )
 
     def execute(self, context):
-        key_prop = context.window_manager.kp_q3tokp_
-        # fdir = self.properties.filepath
-        # context.scene.my_addon.some_identifier = fdir
+        f_path = Path(self.filepath)
+        if f_path.exists():
+            kp_q3tokp_ = context.window_manager.kp_q3tokp_
+            kp_q3tokp_.ui_path_cfg_file = self.filepath  # directory
+        else:
+            self.report(type={"WARNING"}, message="File not found")
         return{'FINISHED'}
+
+    def invoke(self, context, event):
+        kp_q3tokp_ = context.window_manager.kp_q3tokp_
+        self.filepath = kp_q3tokp_.ui_path_cfg_file # read existing
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
 
 
 # button CONVERT
 class KINGPIN_UI_BUTTON_GO(Operator):
-    # UI_btn_DoConversion     "Convert to Kingpin"     align:#centre     height:22 width:136 tooltip:string_Tip_GO
+    ''' convert model '''
     bl_idname = "kp.ui_btn_do_conversion"
     bl_label = "Convert to Kingpin"
     bl_description = ("Creates new objects with name KP_*\n"
@@ -291,7 +296,6 @@ class KINGPIN_UI_BUTTON_GO(Operator):
     def execute(self, context):
         '''convert q3 models to kp animations'''
         key_prop = context.window_manager.kp_q3tokp_
-        # key_prop = WindowManager.kp_q3tokp_
 
         # animation.cfg with 25 leg/body events (structure(start,end)
         self.Q3_Anims = []
@@ -507,7 +511,7 @@ class KINGPIN_UI_BUTTON_GO(Operator):
                 mat_loc1 = Matrix.Translation(tag_pos_f)
                 mat_rot = Matrix.Rotation(angle, 4, axis)  # 'Z')
                 mat_loc2 = Matrix.Translation(-tag_pos_f)
-                if bpy.app.version < (2, 80, 0):
+                if check_version(2, 80, 0) < 0:
                     ob.matrix_world = mat_loc1 * mat_rot * mat_loc2 * ob.matrix_world
                 else:
                     ob.matrix_world = mat_loc1 @ mat_rot @ mat_loc2 @ ob.matrix_world
@@ -894,7 +898,7 @@ class KINGPIN_UI_BUTTON_GO(Operator):
             # END sortDeathAni_ByFrames_fn
 
             # TODO get previous folder if missing? or show dialog box?
-            fPath = key_prop.ui_btn_getfile
+            fPath = key_prop.ui_path_cfg_file
             isError = False
             ani_Index = 0  # as integer
             lineNum = 0
@@ -1101,7 +1105,7 @@ class KINGPIN_UI_BUTTON_GO(Operator):
 
             # set scens/collction
             sceneName = "KP_combined"
-            if bpy.app.version < (2, 80, 0):
+            if check_version(2, 80, 0) < 0:
                 self.collection_new = bpy.data.scenes.new(sceneName)
                 bpy.context.screen.scene = self.collection_new
             else:

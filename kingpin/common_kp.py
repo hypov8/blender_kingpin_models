@@ -6,10 +6,17 @@ blender compatability tools
 '''
 
 # from ast import excepthandler
-from msilib.schema import Class
+# from msilib.schema import Class
+# from typing import Tuple
 import bpy
 from timeit import default_timer as timer
 import bmesh
+from bpy.types import PropertyGroup
+from bpy.props import (
+    StringProperty,
+    CollectionProperty,
+    BoolProperty
+)
 
 
 BL_VER = (1, 2, 6)
@@ -199,6 +206,86 @@ MD2_VN = (
     (-0.587785, -0.425325, -0.688191),
     (-0.688191, -0.587785, -0.425325)
 )
+
+
+
+def check_version(major, minor, _):
+    '''
+    check_version(2, 80, 0) < 0:
+    source 3.2.1 magic_uv/utils/compatibility.py
+    Check blender version
+    '''
+    ver_id = tuple(bpy.app.version)
+    if ver_id[0] == major and ver_id[1] == minor:
+        return 0
+    if ver_id[0] > major:
+        return 1
+    if ver_id[1] > minor:
+        return 1
+    return -1
+
+
+def set_ui_panel_string():
+    """
+    bl_region_type = set_ui_panel_string()
+    old blender used differnt name for panel location
+    2.80: <'UI'>
+    2.79: <'TOOLS'>
+    """
+    if check_version(2, 80, 0) < 0:
+        return 'TOOLS'
+    return 'UI'
+
+
+class KINGPIN_FileSelect_md2_Params:
+    ''' common file select dialog paramaters
+        2.79/2.80
+    '''
+    filter_glob = StringProperty(
+        default="*.md2;*.mdx",
+        options={'HIDDEN'}
+    )
+    files = CollectionProperty(
+        type=PropertyGroup
+    )
+    filepath = StringProperty(
+        maxlen=1024,
+        subtype='FILE_PATH',
+        options={'HIDDEN', 'SKIP_SAVE'}
+    )
+
+class KINGPIN_FileSelect_q3cfg_Params:
+    ''' common file select dialog paramaters
+        2.79/2.80
+    '''
+    filter_glob = StringProperty(
+        default="*.cfg",
+        options={'HIDDEN'},  # TODO
+    )
+    files = CollectionProperty(
+        type=PropertyGroup
+    )
+    filepath = StringProperty(
+        maxlen=1024,
+        subtype='FILE_NAME', #'FILE_PATH',
+        options={'HIDDEN', 'SKIP_SAVE'}
+    )
+
+
+class KINGPIN_FileSelect_folder_Params:
+    ''' common folder select dialog paramaters
+        2.79/2.80
+    '''
+    directory = StringProperty(
+        name="Outdir Path",
+        description="Folder to save models."
+    ) # subtype='DIR_PATH'
+    filter_folder = BoolProperty(
+        default=True,
+        options={"HIDDEN"}
+    )
+
+
 
 
 #########
@@ -394,7 +481,6 @@ def get_hide(context):
     '''
     if hasattr(context, "hide_viewport"):
         return context.hide_viewport  # B2.8
-    # else:
     return context.hide
 
 
@@ -422,17 +508,17 @@ def set_mode_get_obj(context):
     return edit_mode, act_obj, sel_obj
 
 
-def is_selected_mesh(objs):
+def is_selected_mesh(self, objs):
     ''' selection is all mesh objects '''
     if len(objs) == 0:
         print("No objects selected")
-        bpy.types.Operator.report(type={'WARNING'}, message="Nothing Selected")
+        self.report(type={'WARNING'}, message="Nothing Selected")
         return False
 
     for obj in objs:
         if obj.type != 'MESH':
             print("Selection does not contain a valid mesh")
-            bpy.types.Operator.report(type={'WARNING'}, message="Select a valid mesh")
+            self.report(type={'WARNING'}, message="Select a valid mesh")
             return False
     return True
 
@@ -503,6 +589,17 @@ def set_object_link(context, obj):
         context.scene.objects.link(obj)
 
 
+def set_obj_draw_type(obj, draw_type):
+    '''
+    2.80: <obj.display_typev>
+    2.79: <obj.draw_type>
+    '''
+    if hasattr(obj, "draw_type"):
+        obj.draw_type = draw_type
+    else:
+        obj.display_type = draw_type
+
+
 def update_matrices(obj):
     '''
     https://stackoverflow.com/a/57485640
@@ -518,9 +615,9 @@ def update_matrices(obj):
 def make_annotations(cls):
     """Add annotation attribute to fields to avoid Blender 2.8+ warnings
     https://github.com/OpenNaja/cobra-tools/blob/master/addon_updater_ops.py"""
-    if not hasattr(bpy.app, "version") or bpy.app.version < (2, 80):
+    if not hasattr(bpy.app, "version") or check_version(2, 80, 0) < 0:
         return cls
-    if bpy.app.version < (2, 93, 0):
+    if check_version(2, 93, 0) < 0:
         bl_props = {k: v for k, v in cls.__dict__.items()
                     if isinstance(v, tuple)}
     else:
@@ -568,7 +665,15 @@ def set_obj_group(obj, new_group=None):
         new_group.objects.link(obj)
 
 
-def removeInvalidSource(array):
+def set_layout_separator(ui_element, factor=1.0):
+    if check_version(2, 80, 0) < 0:
+        ui_element.separator()
+    else:
+        ui_element.separator(factor=factor)
+
+
+
+def get_mesh_objects(array):
     ''' discard non mesh '''
     out = []
     for o in array:
@@ -623,7 +728,7 @@ def getMeshArrays_fn(obj_group=None,
                            apply_modifyer, global_cords):
         me = None
         depMesh = None
-        if bpy.app.version >= (2, 80):  # B2.8
+        if check_version(2, 80, 0) >= 0:  # B2.8
             depMesh = object.evaluated_get(depsgraph)
             try:
                 if apply_modifyer:
@@ -740,7 +845,7 @@ def getMeshArrays_fn(obj_group=None,
     if not len(obj_group):
         raise Exception("No mesh in array")
 
-    if bpy.app.version >= (2, 80):  # B2.80
+    if check_version(2, 80, 0) >= 0:  # B2.80
         depsgraph = bpy.context.evaluated_depsgraph_get()
         for obj in obj_group:
             obj = bpy.data.objects[obj.name].evaluated_get(depsgraph)

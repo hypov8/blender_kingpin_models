@@ -27,17 +27,20 @@ from mathutils import Vector, kdtree  # Matrix, Euler
 from . export_kp import draw_export
 from . import_kp import draw_import
 from . common_kp import (
+    check_version,
+    set_ui_panel_string,
     get_ui_collection,
     get_objects_all,
     get_objects_selected,
     getMeshArrays_fn,
     set_select_state,
     set_mode_get_obj,
+    set_obj_draw_type,
     refresh_ui_keyframes,
     printStart_fn,
     printProgress_fn,
     printDone_fn,
-    removeInvalidSource,
+    get_mesh_objects,
     is_selected_mesh,
     get_addon_preferences,
     IDX_XYZ_V,
@@ -162,7 +165,7 @@ class KINGPIN_Tools_props(PropertyGroup):
 # -=| GUI |=- #1 Import
 class VIEW3D_PT_Tool_GUI_IMPORT(Panel):
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'TOOLS' if bpy.app.version < (2, 80, 0) else 'UI'
+    bl_region_type = set_ui_panel_string()
     bl_category = 'Kingpin'
     bl_label = 'Import'
     bl_options = {'DEFAULT_CLOSED'} # {'HEADER_LAYOUT_EXPAND'}
@@ -176,7 +179,6 @@ class VIEW3D_PT_Tool_GUI_IMPORT(Panel):
             row.operator("kp.import_model_dialog")
         else:
             draw_import(self, context)
-            # kp_import_ = context.window_manager.kp_import_
             layout = self.layout
             col = layout.column(align=True)
             row = col.row()
@@ -187,7 +189,7 @@ class VIEW3D_PT_Tool_GUI_IMPORT(Panel):
 # -=| GUI |=- #1 Export
 class VIEW3D_PT_Tool_GUI_EXPORT(Panel):
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'TOOLS' if bpy.app.version < (2, 80, 0) else 'UI'
+    bl_region_type = set_ui_panel_string()
     bl_category = 'Kingpin'
     bl_label = 'Export'
     bl_options = {'DEFAULT_CLOSED'} # {'HEADER_LAYOUT_EXPAND'}
@@ -201,35 +203,37 @@ class VIEW3D_PT_Tool_GUI_EXPORT(Panel):
             row.operator("kp.export_model_dialog")
         else:
             draw_export(self, context)
+            #
             kp_export_ = context.window_manager.kp_export_
             layout = self.layout
-            col = layout.column(align=True)
-            box = col.box()
-            row = box.row()
+            box3 = layout.box()
+            row = box3.column()
             row.prop(kp_export_, "ui_opt_model_ext")
 
-            row = box.row(align=True)
+            # file name
+            row = box3.row(align=True)
             col1 = row.column()
+            col1.alignment = 'EXPAND'
             col1.prop(kp_export_, "ui_opt_export_name")
             col2 = row.column()
-            col2.ui_units_x = 1
             col2.alignment = 'RIGHT'
             col2.operator("kp.export_button_file",
-                translate=False,
-                icon='DUPLICATE') # COPYDOWN PASTEDOWN FILE_REFRESH DUPLICATE IMPORT
+                translate=False, icon='IMPORT')
+
             # folder string
-            row = box.row(align=True)
+            row = box3.row(align=True)
             col1 = row.column()
-            col1.active = False  # input box (no edit)
+            col1.alignment = 'EXPAND'
+            col1.enabled = False  # input box (no edit)
             col1.prop(kp_export_, "ui_opt_export_path")
-            # folder buttonm
+            # folder button
             col2 = row.column()
-            col2.ui_units_x = 1
             col2.alignment = 'RIGHT'
             col2.operator("kp.export_button_folder",
-                translate=False, icon='FILE_FOLDER')
+                translate=False, icon='FILE_FOLDER', text="")
+
             # export button
-            row = box.row()
+            row = layout.row()
             row.alignment = 'CENTER'
             row.operator("kp.export_button_model")
 
@@ -237,31 +241,22 @@ class VIEW3D_PT_Tool_GUI_EXPORT(Panel):
 # -=| GUI |=- #1 Grid
 class VIEW3D_PT_Tool_GUI_GRID(Panel):
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'TOOLS' if bpy.app.version < (2, 80, 0) else 'UI'
+    bl_region_type = set_ui_panel_string()
     bl_category = 'Kingpin'
     bl_label = 'MD2 Grid'
     bl_options = {'DEFAULT_CLOSED'}
-    # bl_options = {'HEADER_LAYOUT_EXPAND'}
-    # UI
 
     def draw(self, context):
         kp_tool_ = context.window_manager.kp_tool_
 
         layout = self.layout
-
-        col = layout.column(align=True)
-        # Build Grid #
-        row = col.row()
-        # row.alignment = 'CENTER'
-        row.label(text="Build Grid:")
-        box = col.box()
-        row = box.row()  # align=True # row.alignment = 'EXPAND'
+        box1 = layout.box()
+        row = box1.column_flow(columns=1, align=True)
         row.prop(kp_tool_, "ui_use_solid")
-        row = box.row()
         row.prop(kp_tool_, "ui_floor_cube")
-        row = box.row()
         row.prop(kp_tool_, "ui_subdiv")
-        row = box.row()
+        #button
+        row = layout.row()
         row.alignment = 'CENTER'
         row.operator("kp.ui_btn_grid")
 
@@ -269,39 +264,32 @@ class VIEW3D_PT_Tool_GUI_GRID(Panel):
 # -=| GUI |=- #2 Mesh deform
 class VIEW3D_PT_Tool_GUI_DEFORM(Panel):
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'TOOLS' if bpy.app.version < (2, 80, 0) else 'UI'
+    bl_region_type = set_ui_panel_string()
     bl_category = 'Kingpin'
     bl_label = 'RETARGET ANIM'
     bl_options = {'DEFAULT_CLOSED'}
-    # bl_options = {'HEADER_LAYOUT_EXPAND'}
-    # UI
+
 
     def draw(self, context):
         kp_tool = context.window_manager.kp_tool_
         layout = self.layout
-        col = layout.column(align=True)
-        # Vertex Driver #
-        row = col.row()
-        # row.alignment = 'CENTER'
-        row.label(text="Vertex Driver:")
-        box = col.box()
-        row = box.row()
+
+        box = layout.box()
+        row = box.column_flow(columns=2, align=True)
         row.prop(kp_tool, "ui_drv_start")
         row.prop(kp_tool, "ui_drv_end")
-        row = box.row()
-        row.prop(kp_tool, "ui_drv_bind_fr")
 
-        row = box.row()  # object/collection
+        row = box.column_flow(columns=1, align=True)
+        row.prop(kp_tool, "ui_drv_bind_fr")
         row.prop(kp_tool, "ui_drv_is_collection")
-        row = box.row()
         if kp_tool.ui_drv_is_collection == True:
             row.prop(kp_tool, "ui_drv_obj_picker_group")
         else:
             row.prop(kp_tool, "ui_drv_obj_picker")
-
-        row = box.row()
+        # buttons
+        row = layout.row()
         row.operator("kp.ui_btn_driver")
-        row = box.row()
+        row = layout.row()
         row.alignment = 'CENTER'
         row.operator("kp.ui_btn_driver_clear")
 
@@ -309,7 +297,7 @@ class VIEW3D_PT_Tool_GUI_DEFORM(Panel):
 # -=| GUI |=- #3 Smooth md2 compresion
 class VIEW3D_PT_Tool_GUI_SMOOTH(Panel):
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'TOOLS' if bpy.app.version < (2, 80, 0) else 'UI'
+    bl_region_type = set_ui_panel_string()
     bl_category = 'Kingpin'
     bl_label = 'MD2 Smooth'
     bl_options = {'DEFAULT_CLOSED'}
@@ -317,33 +305,17 @@ class VIEW3D_PT_Tool_GUI_SMOOTH(Panel):
     def draw(self, context):
         kp_tool = context.window_manager.kp_tool_
         layout = self.layout
-        col = layout.column(align=True)
-        # Build smooth #
-        # row = col.row()
-        # row.label(text="Smooth Compresion:")
-        box = col.box()
-        # bRow = box.row()
-        # bRow.prop(kp_tool, "ui_smooth_scale")
-        # range
-        bRow = box.row()
-        bRow.prop(kp_tool, "ui_smooth_start")
-        bRow.prop(kp_tool, "ui_smooth_end")
-        # options
-        # bRow = box.row()
-        # bRow.prop(kp_tool, "ui_smooth_method")
-        bRow = box.row()
-        bRow.prop(kp_tool, "ui_smooth_loop")
-        # bRow = box.row()
-        # bRow.prop(kp_tool, "ui_smooth_use_bbox")
-        # if kp_tool.ui_smooth_use_bbox == False:
-        #     bRow = box.row()
-        #     bRow.prop(kp_tool, "ui_smooth_x")
-        #     bRow.prop(kp_tool, "ui_smooth_y")
-        #     bRow.prop(kp_tool, "ui_smooth_z")
+        box = layout.box()
+        row = box.column_flow(columns=2, align=True)
+        row.prop(kp_tool, "ui_smooth_start")
+        row.prop(kp_tool, "ui_smooth_end")
+        # option
+        row = box.column()
+        row.prop(kp_tool, "ui_smooth_loop")
         # button
-        bRow = box.row()
-        bRow.alignment = 'CENTER'
-        bRow.operator("kp.ui_btn_smooth")
+        row = layout.row()
+        row.alignment = 'CENTER'
+        row.operator("kp.ui_btn_smooth")
 
 
 # button add vertex keyframes animation
@@ -404,7 +376,7 @@ class KINGPIN_UI_BUTTON_DRIVER(Operator):
                 src_Objs = key_prop.ui_drv_obj_picker_group.objects
         else:
             src_Objs = [key_prop.ui_drv_obj_picker]
-        src_Objs = removeInvalidSource(src_Objs)
+        src_Objs = get_mesh_objects(src_Objs)
 
         # frame  data
         start_fr = key_prop.ui_drv_start
@@ -424,7 +396,7 @@ class KINGPIN_UI_BUTTON_DRIVER(Operator):
         printProgress_fn(0, total_frames, prefix)
 
         # check valid selections
-        if not is_selected_mesh(sel_objs) or not is_selected_mesh(src_Objs):
+        if not is_selected_mesh(self, sel_objs) or not is_selected_mesh(self, src_Objs):
             print("No valid mesh selected")
             self.report({'WARNING'}, "Select a valid mesh")
             return {'FINISHED'}
@@ -610,7 +582,7 @@ class KINGPIN_UI_BUTTON_GRID(Operator):
         ####################
         # generate new grid/s
         # subdivision in B3.0 uses face count
-        divFix = devis if bpy.app.version < (3, 00, 0) else (devis - 1)
+        divFix = devis if check_version(3, 00, 0) < 0 else (devis - 1)
         rng = 1 if key_prop.ui_floor_cube else 3  # skip X+Y grid
         for i in range(rng):
             bpy.ops.mesh.primitive_grid_add(x_subdivisions=divFix,
@@ -628,10 +600,8 @@ class KINGPIN_UI_BUTTON_GRID(Operator):
             obj.show_all_edges = True
             obj.show_wire = key_prop.ui_use_wire
             drawType = 'SOLID' if key_prop.ui_use_solid else 'WIRE'
-            if hasattr(obj, "draw_type"):  # if bpy.app.version < (2, 80, 0):
-                obj.draw_type = drawType
-            else:
-                obj.display_type = drawType
+            set_obj_draw_type(obj, drawType)
+
             set_select_state(context=obj, opt=False)
 
         #######################
@@ -665,7 +635,7 @@ class KINGPIN_UI_BUTTON_SMOOTH(Operator):
         edit_mode, act_obj, sel_objs = set_mode_get_obj(context)
 
         # check valid selections
-        if not is_selected_mesh(sel_objs):
+        if not is_selected_mesh(self, sel_objs):
             return {'FINISHED'}
 
         key_prop = context.window_manager.kp_tool_
