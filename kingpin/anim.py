@@ -25,12 +25,13 @@ from bpy.props import (
 )
 from bpy.app.handlers import persistent
 from mathutils import Vector
-from .common_kp import (
+from . common_kp import (
+    set_ui_panel_string,
     set_select_state,
     getMeshArrays_fn,
     set_mode_get_obj,
     is_selected_mesh,
-    removeInvalidSource,
+    get_mesh_objects,
     IDX_XYZ_V
 )
 
@@ -166,7 +167,7 @@ def deleteKey_kp(context, allVerts=False):
     # kp_tool_anim = context.window_manager.kp_anim_
 
     edit_mode, act_obj, sel_obj = set_mode_get_obj(context)
-    sel_obj = removeInvalidSource(sel_obj)
+    sel_obj = get_mesh_objects(sel_obj)
 
     for obj in sel_obj:
         data = obj.data
@@ -198,7 +199,7 @@ def delete_all_anims(self, context):
     edit_mode, _, sel_objs = set_mode_get_obj(context)
     # frame = bpy.context.scene.frame_current
 
-    if not is_selected_mesh(sel_objs):
+    if not is_selected_mesh(self, sel_objs):
         return #{'FINISHED'}
 
     for obj in sel_objs:
@@ -222,13 +223,11 @@ def delete_all_anims(self, context):
         obj.data.animation_data_clear()
         obj.animation_data_clear()
         # clear shapekey data
-        sk_data = obj.data.shape_keys
+        sk_data = obj.data.shape_keys if hasattr(obj.data, 'shape_keys') else None
         if sk_data:
             obj.active_shape_key_index = 0
             obj.data.update()
             sk_data.animation_data_clear()
-            # if bpy.app.version >= (2, 80, 0):
-            #    obj.shape_key_clear()
             keyblocks = reversed(sk_data.key_blocks)
             for sk in keyblocks:
                 obj.shape_key_remove(sk)
@@ -253,7 +252,7 @@ def delete_all_anims(self, context):
 # GUI (Panel)
 class VIEW3D_PT_animall_KP(Panel):
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'TOOLS' if bpy.app.version < (2, 80, 0) else 'UI'
+    bl_region_type = set_ui_panel_string()
     bl_category = 'Kingpin'
     bl_label = 'KEY FRAMES'
     bl_options = {'DEFAULT_CLOSED'}
@@ -266,7 +265,7 @@ class VIEW3D_PT_animall_KP(Panel):
     def draw(self, context):
         '''  '''
         obj = context.active_object
-        if not obj:
+        if not obj or obj.type != 'MESH':
             layout = self.layout
             col = layout.column(align=True)
             row = col.row(align=True)
@@ -276,57 +275,42 @@ class VIEW3D_PT_animall_KP(Panel):
         kp_tool_anim = context.window_manager.kp_anim_
         sk_activ = obj.active_shape_key
         sk_index = obj.active_shape_key_index
-        sk_data = obj.data.shape_keys  # 2.79 fix
+        sk_data = obj.data.shape_keys if hasattr(obj.data, 'shape_keys') else None # 2.79 fix
         is_vertex = (not sk_data or
                      (sk_activ and not sk_index))
-
-        # print("sk_a={}\nsk_id={}\nsk_dat={}\n".format(
-        #   sk_activ, sk_index, "true" if sk_data else "false"))
+        enable_box = False \
+            if not is_vertex and (sk_data and sk_data.use_relative) \
+                else True
 
         layout = self.layout
-        col = layout.column(align=True)
-
-        box = col.box()
-        if not is_vertex and (sk_data and sk_data.use_relative):  # sk absolute
-            box.enabled = False  # disable setting keyframes for shape keys
-        row = box.row(align=True)
-        row.alignment = 'EXPAND'
+        box1 = layout.box()
+        box1.enabled = enable_box
+        row = box1.column_flow(columns=2, align=True)
+        # row.alignment = 'EXPAND'  # 'EXPAND', 'LEFT', 'CENTER', 'RIGHT']
         row.label(text="Selected")
         row.label(text="All Vertex")
-        row = box.row()
-        row.alignment = 'EXPAND'  # 'EXPAND', 'LEFT', 'CENTER', 'RIGHT']
+        row = box1.column_flow(columns=2, align=True)
         row.scale_y = 1.2
         row.operator("anim.insert_keyframe_animall_kp", icon="KEY_HLT")
         row.operator("anim.insert_keyframe_animall_all_kp", icon="KEYINGSET")
-        row = box.row()
-        row.scale_y = 1.2
         row.operator("anim.delete_keyframe_animall_kp", icon="KEY_DEHLT")
         row.operator("anim.delete_keyframe_animall_all_kp", icon="KEY_DEHLT")
-        # box.separator()
-        row = box.row(align=True)
-        # row.operator("anim.clear_animation_animall_kp", icon="X")
+        row = box1.column_flow(columns=1, align=True)
         row.operator("kp.ui_btn_driver_clear", icon="X")
-
-        # keyframe Types in/out
-        row = box.row()
         row.label(text="Interpolation", icon="IPO_CONSTANT")
-        row = box.row()
         row.prop(kp_tool_anim, "key_keytype_in")
-        row = box.row()
         row.prop(kp_tool_anim, "key_keytype_out")
-        # end box #
-        ###########
+        # end box1 #
+        ############
 
         # frame change box. fix for vertex animation bug
-        col.separator()
-        box = col.box()
-
+        box2 = layout.box()
+        # box2.enabled = enable_box
         # live update option for vertex? not working
         # row = box.row(align=True)  # row 1
         # row.alignment = 'LEFT'
         # row.prop(kp_tool_anim, "key_frame")
-
-        row = box.row(align=True)  # row 1. mode
+        row = box2.row(align=True)  # row 1. mode
         row.alignment = 'LEFT'
         if is_vertex:
             row.label(text="Vertex Mode", icon="VERTEXSEL")
@@ -334,15 +318,14 @@ class VIEW3D_PT_animall_KP(Panel):
             row.label(text="Shape Key Mode", icon="SHAPEKEY_DATA")
 
         # arrows
-        row = box.row(align=True)  # row 2
-        row.alignment = 'LEFT'
+        row = box2.column_flow(columns=3, align=True)
+        row.alignment = 'EXPAND'
         row.operator("anim.frame_prev_kp")  # left arrow
         row.operator("anim.frame_next_kp")  # right arror
         row.operator("anim.frame_update_kp")  # update/sync button
-
-        # frame number
-        row = box.row()
+        row = box2.column_flow(columns=1, align=True)
         row.alignment = 'LEFT'
+        # frame number
         str_row = ("Fr: %i" % bpy.context.scene.frame_current)
 
         # new objects wint have this updated yet
@@ -359,19 +342,16 @@ class VIEW3D_PT_animall_KP(Panel):
                     frame_min = val - 0.01  # find close float
                     frame_max = val + 0.01  #
                     if not (sk_frame > frame_min and sk_frame < frame_max):
-                        row = box.row()  # row 4
                         row.label(text="Shape Key Not sync'd", icon="INFO")
             ####################
             # relative shapekeys
             elif sk_index > 0:
                 row.label(text="%s   SK: %s" % (str_row, sk_name))  # , icon="SHAPEKEY_DATA")
                 if sk_activ.value < 1:
-                    row = box.row()  # row 4
                     row.label(text='sKey not 1.0? sync?', icon="INFO")
             elif sk_activ or sk_data:
                 key0_Name = sk_data.key_blocks[0].name if sk_data else sk_name
                 row.label(text="%s   SK: %s (Base)" % (str_row, key0_Name))  # icon="SHAPEKEY_DATA"
-                row = box.row()  # row 4
                 row.label(text="sKey: Index 0", icon="ERROR")  # index invalid
         # else:
         #    row.label(text="Vertex Mode", icon="VERTEXSEL")
@@ -386,7 +366,7 @@ class KP_UI_BTN_ANIM_FRAME_NEXT(Operator):
 
     def execute(op, context):
         obj = context.active_object
-        sk_data = obj.data.shape_keys
+        sk_data = obj.data.shape_keys if hasattr(obj.data, 'shape_keys') else None
         is_vertex = (not obj.active_shape_key and
                      not obj.active_shape_key_index and
                      not sk_data)
@@ -416,7 +396,7 @@ class KP_UI_BTN_ANIM_FRAME_PREV(Operator):
 
     def execute(op, context):
         obj = context.active_object
-        sk_data = obj.data.shape_keys
+        sk_data = obj.data.shape_keys if hasattr(obj.data, 'shape_keys') else None
         is_vertex = (not obj.active_shape_key and
                      not obj.active_shape_key_index and
                      not sk_data)
@@ -451,7 +431,7 @@ class KP_UI_BTN_ANIM_FRAME_UPDATE(Operator):
 
     def execute(op, context):
         obj = context.active_object
-        sk_data = obj.data.shape_keys
+        sk_data = obj.data.shape_keys if hasattr(obj.data, 'shape_keys') else None
         is_vertex = (not obj.active_shape_key and
                      not obj.active_shape_key_index and
                      not sk_data)
@@ -509,21 +489,10 @@ def insertKey_kp(context, allVerts=False):
     frame_max = bpy.context.scene.frame_current + 0.01  #
 
     edit_mode, act_obj, sel_obj = set_mode_get_obj(context)
-    sel_obj = removeInvalidSource(sel_obj)
-
-    # if context.mode == 'OBJECT':
-    #     objects = context.selected_objects
-    # else:
-    #     if hasattr(context, 'objects_in_mode_unique_data'):
-    #         objects = context.objects_in_mode_unique_data[:]
-    #     else:
-    #         objects = context.selected_objects  # 2.79
-
-    # edit_mode = context.object.mode
-    # bpy.ops.object.mode_set(mode='OBJECT')
+    sel_obj = get_mesh_objects(sel_obj)
 
     for obj in sel_obj: #[o for o in objects if o.type in {'MESH'}]:
-        sk_data = obj.data.shape_keys  # 2.79 fix
+        sk_data = obj.data.shape_keys if hasattr(obj.data, 'shape_keys') else None  # 2.79 fix
         is_vertex = (not obj.active_shape_key and
                      not obj.active_shape_key_index and
                      not sk_data)
@@ -641,16 +610,6 @@ class KP_UI_BTN_ANIM_DEL_ALL_ANIM(Operator):
     bl_options = {"REGISTER", "UNDO"}
     bl_description = ("Remove all animations and shape keys")
 
-    # @classmethod
-    # def poll(self, context):
-    #     return (context.selected_objects and
-    #             context.selected_objects[0].type in {'MESH'}
-    #             )
-
-    # def invoke(self, context, event):
-    #     wm = context.window_manager
-    #     return wm.invoke_confirm(self, event)
-
     def execute(self, context):
         delete_all_anims(self, context)
 
@@ -672,7 +631,6 @@ classes = (
 
 def register():
     for cls in classes:
-        # make_annotations(cls)  # v1.2.2
         bpy.utils.register_class(cls)
 
 
