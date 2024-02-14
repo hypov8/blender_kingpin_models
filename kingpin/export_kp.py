@@ -1237,6 +1237,7 @@ def Export_MD2_fn(self, context, filepath):
         write_fn(self, filepath)
         # total time
         printDone_fn(startTime, "Total time")  # Done.
-    except:
+    except Exception as e:
         print("Caught error exporting model")
+        print(e)
         # raise RuntimeError("Only mesh objects can be exported")

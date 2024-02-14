@@ -16,6 +16,7 @@ import bpy
 from bpy.types import (
     Operator,
     Panel,
+    Object,
     PropertyGroup
 )
 from bpy.props import (
@@ -118,7 +119,7 @@ class KINGPIN_Tools_props(PropertyGroup):
 
     ui_drv_obj_picker = PointerProperty(
         name="Source",
-        type=bpy.types.Object, #  todo ok?object,
+        type=Object, #  todo ok?bpy.types.Object,
         description=(
             "Pick the object/mesh you want to use to" +
             "drive the selected object\\s."
