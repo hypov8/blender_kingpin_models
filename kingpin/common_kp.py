@@ -214,14 +214,24 @@ def check_version(major, minor, _):
     check_version(2, 80, 0) < 0:
     source 3.2.1 magic_uv/utils/compatibility.py
     Check blender version
+    return:
+    0: same version
+    1: newer version
+    -1:older version
     '''
     ver_id = tuple(bpy.app.version)
-    if ver_id[0] == major and ver_id[1] == minor:
-        return 0
-    if ver_id[0] > major:
+    cur_major, cur_minor = ver_id[0], ver_id[1]
+
+    # matching major version
+    if cur_major == major:
+        if cur_minor == minor: # minor version identical
+            return 0
+        if cur_minor > minor: # minor version newer
+            return 1
+    # newer major ver
+    if cur_major > major:
         return 1
-    if ver_id[1] > minor:
-        return 1
+    # older version
     return -1
 
 
@@ -767,7 +777,6 @@ def getMeshArrays_fn(obj_group=None,
         ''' Make our own list so it can be sorted to reduce context switching '''
         face_index_pairs = [(face, index) for index, face in enumerate(me.polygons)]
         me_verts = me.vertices[:]  # get vert array
-        me.calc_normals_split()
         loops = me.loops
 
         # counters
@@ -788,13 +797,27 @@ def getMeshArrays_fn(obj_group=None,
             tmp_XYZ_vert.append(v.co[:])   # XYZ float
             # tmp_XYZ_norm.append(v.normal[:])  # XYZ float
 
-        # Vertex normal
-        if custom_vn: # self.ui_opt_cust_vn:  #option cust normals
-            for i, v in enumerate(loops):
-                tmp_XYZ_norm[v.vertex_index] = (v.normal.x, v.normal.y, v.normal.z)
+        # Vertex normals
+        if not hasattr(me, "calc_normals_split"): # if check_version(4, 10, 0) >= 0:    #B4.1
+            if custom_vn:
+                vNorms = me.corner_normals
+                for v in loops:
+                    vN = vNorms[v.vertex_index]
+                    tmp_XYZ_norm[v.vertex_index] = (vN.vector.x, vN.vector.y, vN.vector.z)
+            else:
+                for i, v in enumerate(me.vertex_normals):
+                    tmp_XYZ_norm[i] = (v.vector.x, v.vector.y, v.vector.z)
         else:
-            for i, v in enumerate(me_verts):
-                tmp_XYZ_norm[i] = (v.normal[:])  # XYZ float
+            me.calc_normals_split() # !B4.1
+            if custom_vn:
+                # self.ui_opt_cust_vn:  #option custom normals
+                # note: model is not split at vertex.
+                #       set mesh to smoothed and detatch faces at hard edge
+                for v in loops:
+                    tmp_XYZ_norm[v.vertex_index] = (v.normal.x, v.normal.y, v.normal.z)
+            else:
+                for i, v in enumerate(me_verts):
+                    tmp_XYZ_norm[i] = (v.normal[:])  # XYZ float
 
         # UV
         uv_unique_count = 0  # IDX_I_UV

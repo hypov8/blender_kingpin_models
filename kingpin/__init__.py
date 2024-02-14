@@ -88,20 +88,19 @@ v1.2.4
 - added a mesh driver function. so animated meshes can be split into sections
 
 v1.2.5
-- added high deff models. 2byte vertex, double vert/poly counts
+- added 2 byte precision import/export (HD, no wobble)
 - updated animation tool to support collections at source
 - split up faces into 256 groups when building glcommands. speed boost but...
 
 v1.2.6
-- added 2 byte precision import/export (HD, no wobble)
 - added pcx support. pcx will be saved to .blend file
-- added mesh smooth tool. to try fix md2 compresion wobble. for HD export
-- fixed mesh grid to use proper context. compatable with older blender
-- removed unused libary and clean up
-- retarget animation now supports selecting collections as source
+- added mesh smooth tool. to try fix md2 compression wobble. for HD export
+- fixed mesh grid to use proper context. compatible with older blender
+- removed unused library and clean up
+- re-target animation now supports selecting collections as source
 - added custom vertex normal export option (use for players with seams)
 - addon preference. export file name as mesh name. with md2/mdx choice
-- added import/export butting to tool menu
+- added import/export button to tool menu
 
 
 
@@ -193,6 +192,10 @@ import bpy
 from bpy.types import WindowManager, AddonPreferences
 from bpy.props import PointerProperty, BoolProperty
 from . common_kp import (
+    KINGPIN_FileSelect_md2_Params,
+    KINGPIN_FileSelect_q3cfg_Params,
+    KINGPIN_FileSelect_folder_Params,
+    check_version,
     make_annotations,
     get_menu_import,
     get_menu_export
@@ -214,7 +217,8 @@ from . export_kp import (
     KINGPIN_Export_Button_File
     )
 
-if bpy.app.version < (2, 80): bl_info["blender"] = (2, 79, 0)
+if check_version(2, 80, 0) < 0:
+    bl_info["blender"] = (2, 79, 0)
 
 
 class KP_Preferences(AddonPreferences):
@@ -257,6 +261,7 @@ class KP_Preferences(AddonPreferences):
         row = box.row()
         row.label(text='Import Tool Panel')
         row = box.row()
+        row.enabled = False
         row.prop(self, "pref_kp_import_button_use_dialog")
         # export options
         box = layout.box()
@@ -297,6 +302,10 @@ classes_props = (  # convert to py3
 
 
 def register():
+    make_annotations(KINGPIN_FileSelect_md2_Params)
+    make_annotations(KINGPIN_FileSelect_q3cfg_Params)
+    make_annotations(KINGPIN_FileSelect_folder_Params)
+
     for cls in classes_props:
         make_annotations(cls)
         bpy.utils.register_class(cls)
