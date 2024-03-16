@@ -7,6 +7,7 @@ md2/mdx exporter
 import os
 import struct
 import bpy
+from mathutils import Vector as Vec
 from bpy.types import Operator, PropertyGroup
 from bpy.props import (
     BoolProperty,
@@ -237,7 +238,7 @@ def draw_export(self, context):
     # misc options box
     box = layout.box()
     miscBox = box.column_flow(columns=1, align=True)
-    # miscBox.prop(ui_export_, "ui_opt_apply_modify")  # apply movifiers
+    # miscBox.prop(ui_export_, "ui_opt_apply_modify")  # apply modifiers
     # if ui_export_.ui_opt_apply_modify:
     miscBox.prop(ui_export_, "ui_opt_cust_vn")   # custom vertex normals
     miscBox.prop(ui_export_, "ui_opt_is_hd")         # HD version
@@ -383,13 +384,14 @@ def setupInternalArrays_fn(self):
         # --------------------------------------------
         # TODO find why this is taking lots of time...
         # 5 seconds with no items to seek 700 frames
-        frame_idx = start_frame + frame
-        scene.frame_set(frame_idx)
+        if self.ui_opt_animated: # dont move frame unless animated
+            frame_idx = start_frame + frame
+            scene.frame_set(frame_idx)
         # --------------------------------------------
         self.frameData.append(
             getMeshArrays_fn(
                 obj_sel,
-                getUV=1 if frame == 0 else 0, # ignore uv for animated frames
+                getUV=bool(frame == 0), # ignore uv for animated frames
                 apply_modifyer=apply_modifyer,
                 custom_vn=custom_vn)
         )
@@ -697,6 +699,7 @@ def setup_data_fn(self, context):
         # print("GLCommands. (Count: {})".format(numCommands))
         del cmdVerts, cmdUV, cmdTris, bestVerts, bestUV, bestTris
         return numCommands
+    # end
 
     # TODO
     def getSkins_fn(self, obj_sel, method):
@@ -802,10 +805,10 @@ def setup_data_fn(self, context):
 
         printDone_fn(self.start_time, prefix)  # Done.
         print("Count:  {}\n".format(len(skins)) +
-            "Width:  {}\n".format(width) +
-            "Height: {}".format(height))
+              "Width:  {}\n".format(width) +
+              "Height: {}".format(height))
         for idx, skin in enumerate(skins):
-            print("skin{}:  {}".format(idx + 1, skin[0:MD2_MAX_SKINNAME]))
+            print("skin{}:  {}".format(idx + 1, skin[0:MD2_MAX_SKINNAME-1]))
         if height > 480 or width > 480:
             print("WARNING: found texture larger than kingpin max 480px")
 
@@ -823,6 +826,7 @@ def setup_data_fn(self, context):
         self.skinWidth = width
         self.skinHeight = height
         self.skins = skins
+    # end getSkins_fn
 
     def buildFrameNames_fn(self):
         '''
@@ -858,6 +862,7 @@ def setup_data_fn(self, context):
             else:
                 name.append("frame_" + str(frame_idx))
         return name
+    # end buildFrameNames_fn
 
     def calcSharedBBox_fn(self):
         ''' option to make bbox size across all frames the same
@@ -891,6 +896,7 @@ def setup_data_fn(self, context):
         if self.ui_opt_share_bbox:  # .options
             self.bbox_min.append(min)
             self.bbox_max.append(max)
+    # end calcSharedBBox_fn
 
     def calculateHitBox_fn(self):
         ''' mdx hitbox '''
@@ -920,6 +926,7 @@ def setup_data_fn(self, context):
                                 hitboxMax[0], hitboxMax[1], hitboxMax[2]])
 
             self.hitbox.append(hitboxTmp)
+    # end
 
     # TODO speed boost VN list
     def calculateVNornIndex_fn(self):
@@ -940,6 +947,8 @@ def setup_data_fn(self, context):
             for tmp_mesh in self.frameData[frame]:
                 vn_tmp = [0] * tmp_mesh[IDX_I_VERT]
                 for i, vn in enumerate(tmp_mesh[IDX_XYZ_VN]):
+                    vn = Vec.normalized(Vec(vn))
+                    vn = (vn.x, vn.y, vn.z)
                     maxDot = vn[0] * MD2_VN[0][0] + vn[1] * MD2_VN[0][1] + vn[2] * MD2_VN[0][2]
                     bestIdx = 0
                     for iN in range(1, 162):
@@ -949,7 +958,7 @@ def setup_data_fn(self, context):
                         if dot > maxDot:
                             maxDot = dot
                             bestIdx = iN
-                            if maxDot > 0.99:  # stop wasting time
+                            if maxDot > 0.99999:  # stop wasting time
                                 break
                     vn_tmp[i] = bestIdx  # normal index
                 m_tmp.append(vn_tmp)  # object
@@ -957,6 +966,7 @@ def setup_data_fn(self, context):
             self.vNormData.append(m_tmp)  # frame
         del m_tmp
         printDone_fn(self.start_time, prefix)  # Done.
+    # end  calculateVNornIndex_fn
 
     def get_numTris(self):
         triCount = 0  # self.numTris
@@ -974,6 +984,7 @@ def setup_data_fn(self, context):
                     "Object has too many (triangulated) faces (%i), at most %i are supported in md2"
                     % (triCount, MD2_MAX_TRIANGLES))
         return triCount
+    # end  get_numTris
 
     def get_numVerts(self):
         vertCount = 0  # self.numVerts
@@ -991,12 +1002,14 @@ def setup_data_fn(self, context):
                     "Object has too many (triangulated) faces (%i), at most %i are supported in md2"
                     % (vertCount, MD2_MAX_VERTS))
         return vertCount
+    # end  get_numVerts
 
     def get_numUV(self):
         uvCount = 0
         for tmp_mesh in self.frameData[0]:
             uvCount += tmp_mesh[IDX_I_UV]
         return uvCount
+    # end get_numUV
 
     self.obj_array = []
     self.frameData = []

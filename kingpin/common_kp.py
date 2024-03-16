@@ -493,6 +493,15 @@ def get_hide(context):
         return context.hide_viewport  # B2.8
     return context.hide
 
+def set_empty_draw_type(context, type):
+    '''
+    2.80: <context.empty_draw_type>
+    2.79: <context.empty_display_type>
+     '''
+    if hasattr(context, "empty_draw_type"):
+        context.empty_draw_type = type  # B3.0
+    else:
+        context.empty_display_type = type
 
 def set_mode_get_obj(context):
     '''set object mode=OBJECT, get active.object and selected.objects
@@ -773,8 +782,14 @@ def getMeshArrays_fn(obj_group=None,
         return me, depMesh
     # done triangulateMesh_fn()
 
+    def veckey3d(v):
+        return round(v.x, 4), round(v.y, 4), round(v.z, 4)
+
     def fillMeshArrays(me, faceuv, uv_texture, uv_layer, custom_vn):
-        ''' Make our own list so it can be sorted to reduce context switching '''
+        '''
+        generate arrays
+        '''
+        # Make our own list so it can be sorted to reduce context switching
         face_index_pairs = [(face, index) for index, face in enumerate(me.polygons)]
         me_verts = me.vertices[:]  # get vert array
         loops = me.loops
@@ -798,7 +813,7 @@ def getMeshArrays_fn(obj_group=None,
             # tmp_XYZ_norm.append(v.normal[:])  # XYZ float
 
         # Vertex normals
-        if not hasattr(me, "calc_normals_split"): # if check_version(4, 10, 0) >= 0:    #B4.1
+        if not hasattr(me, "calc_normals_split"): # if check_version(4, 10, 0) >= 0: # B4.1
             if custom_vn:
                 vNorms = me.corner_normals
                 for v in loops:
@@ -808,13 +823,18 @@ def getMeshArrays_fn(obj_group=None,
                 for i, v in enumerate(me.vertex_normals):
                     tmp_XYZ_norm[i] = (v.vector.x, v.vector.y, v.vector.z)
         else:
-            me.calc_normals_split() # !B4.1
+            me.calc_normals_split() # version < B4.1
             if custom_vn:
-                # self.ui_opt_cust_vn:  #option custom normals
                 # note: model is not split at vertex.
                 #       set mesh to smoothed and detatch faces at hard edge
-                for v in loops:
-                    tmp_XYZ_norm[v.vertex_index] = (v.normal.x, v.normal.y, v.normal.z)
+                #       or use 'edge split' modifier with hard edges marked
+                loops_split = me.loops
+                for f, f_index in face_index_pairs:
+                    for l_idx in f.loop_indices:
+                        v_idx = loops_split[l_idx].vertex_index
+                        v_norm = veckey3d(loops_split[l_idx].normal)
+                        if tmp_XYZ_norm[v_idx] is None:
+                            tmp_XYZ_norm[v_idx] = v_norm
             else:
                 for i, v in enumerate(me_verts):
                     tmp_XYZ_norm[i] = (v.normal[:])  # XYZ float
@@ -877,7 +897,7 @@ def getMeshArrays_fn(obj_group=None,
                 continue
             faceuv = uv_layer = None
             if getUV:
-                faceuv = len(me.uv_layers) > 0
+                faceuv = bool(len(me.uv_layers) > 0)
                 if not faceuv:
                     me.uv_layers.new()  # add uv map
                     faceuv = True
