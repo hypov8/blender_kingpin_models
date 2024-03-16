@@ -121,7 +121,6 @@ class KINGPIN_Anim_props(PropertyGroup):
         ],
         default="AUTO",
     )
-
     # used
     key_frame = BoolProperty(
         name="Live Update",
@@ -285,46 +284,47 @@ class VIEW3D_PT_animall_KP(Panel):
         layout = self.layout
         box1 = layout.box()
         box1.enabled = enable_box
-        row = box1.column_flow(columns=2, align=True)
+        boxFlow = box1.column_flow(columns=1, align=True)#start 1 row box flow
         # row.alignment = 'EXPAND'  # 'EXPAND', 'LEFT', 'CENTER', 'RIGHT']
-        row.label(text="Selected")
-        row.label(text="All Vertex")
-        row = box1.column_flow(columns=2, align=True)
+
+        boxFlow.label(text="Selected Vertex")
+        row = boxFlow.column_flow(columns=2, align=True)
         row.scale_y = 1.2
         row.operator("anim.insert_keyframe_animall_kp", icon="KEY_HLT")
-        row.operator("anim.insert_keyframe_animall_all_kp", icon="KEYINGSET")
         row.operator("anim.delete_keyframe_animall_kp", icon="KEY_DEHLT")
+        boxFlow.label(text="All Vertex")
+        row = boxFlow.column_flow(columns=2, align=True)
+        row.scale_y = 1.2
+        row.operator("anim.insert_keyframe_animall_all_kp", icon="KEYINGSET")
         row.operator("anim.delete_keyframe_animall_all_kp", icon="KEY_DEHLT")
-        row = box1.column_flow(columns=1, align=True)
-        row.operator("kp.ui_btn_driver_clear", icon="X")
-        row.label(text="Interpolation", icon="IPO_CONSTANT")
-        row.prop(kp_tool_anim, "key_keytype_in")
-        row.prop(kp_tool_anim, "key_keytype_out")
+        boxFlow.separator(factor=1.2)
+        boxFlow.operator("kp.ui_btn_driver_clear", icon="X")
+
+        box2 = layout.box()
+        boxFlow2 = box2.column_flow(columns=1, align=True)#start 1 row box flow
+        boxFlow2.label(text="Interpolation", icon="IPO_CONSTANT")
+        boxFlow2.prop(kp_tool_anim, "key_keytype_in")
+        boxFlow2.prop(kp_tool_anim, "key_keytype_out")
         # end box1 #
         ############
 
         # frame change box. fix for vertex animation bug
-        box2 = layout.box()
-        # box2.enabled = enable_box
-        # live update option for vertex? not working
-        # row = box.row(align=True)  # row 1
+        box3 = layout.box()
+        # row = box3.row(align=True)  # row 1. mode
         # row.alignment = 'LEFT'
-        # row.prop(kp_tool_anim, "key_frame")
-        row = box2.row(align=True)  # row 1. mode
-        row.alignment = 'LEFT'
         if is_vertex:
-            row.label(text="Vertex Mode", icon="VERTEXSEL")
+            box3.row().label(text="Vertex Mode", icon="VERTEXSEL")
         else:
-            row.label(text="Shape Key Mode", icon="SHAPEKEY_DATA")
+            box3.row().label(text="Shape Key Mode", icon="SHAPEKEY_DATA")
 
         # arrows
-        row = box2.column_flow(columns=3, align=True)
-        row.alignment = 'EXPAND'
-        row.operator("anim.frame_prev_kp")  # left arrow
-        row.operator("anim.frame_next_kp")  # right arror
-        row.operator("anim.frame_update_kp")  # update/sync button
-        row = box2.column_flow(columns=1, align=True)
-        row.alignment = 'LEFT'
+        boxFlow3 = box3.column_flow(columns=3, align=True)
+        boxFlow3.alignment = 'EXPAND'
+        boxFlow3.operator("anim.frame_prev_kp")  # left arrow
+        boxFlow3.operator("anim.frame_next_kp")  # right arror
+        boxFlow3.operator("anim.frame_update_kp")  # update/sync button
+        boxFlow3 = box3.column_flow(columns=1, align=True)
+        boxFlow3.alignment = 'LEFT'
         # frame number
         str_row = ("Fr: %i" % bpy.context.scene.frame_current)
 
@@ -335,26 +335,26 @@ class VIEW3D_PT_animall_KP(Panel):
             ####################
             # absalute shapekeys
             if not sk_data.use_relative:  # sk absolute
-                row.label(text="%s   SK: %s" % (str_row, sk_name))  # , icon="SHAPEKEY_DATA")
+                boxFlow3.label(text="%s   SK: %s" % (str_row, sk_name))  # , icon="SHAPEKEY_DATA")
                 if (sk_data and sk_data.key_blocks):
                     sk_frame = sk_data.key_blocks[sk_index].frame
                     val = float(bpy.context.scene.frame_current * 10)
                     frame_min = val - 0.01  # find close float
                     frame_max = val + 0.01  #
                     if not (sk_frame > frame_min and sk_frame < frame_max):
-                        row.label(text="Shape Key Not sync'd", icon="INFO")
+                        boxFlow3.label(text="Shape Key Not sync'd", icon="INFO")
             ####################
             # relative shapekeys
             elif sk_index > 0:
-                row.label(text="%s   SK: %s" % (str_row, sk_name))  # , icon="SHAPEKEY_DATA")
+                boxFlow3.label(text="%s   SK: %s" % (str_row, sk_name))  # , icon="SHAPEKEY_DATA")
                 if sk_activ.value < 1:
-                    row.label(text='sKey not 1.0? sync?', icon="INFO")
+                    boxFlow3.label(text='sKey not 1.0? sync?', icon="INFO")
             elif sk_activ or sk_data:
                 key0_Name = sk_data.key_blocks[0].name if sk_data else sk_name
-                row.label(text="%s   SK: %s (Base)" % (str_row, key0_Name))  # icon="SHAPEKEY_DATA"
-                row.label(text="sKey: Index 0", icon="ERROR")  # index invalid
+                boxFlow3.label(text="%s   SK: %s (Base)" % (str_row, key0_Name))  # icon="SHAPEKEY_DATA"
+                boxFlow3.label(text="sKey: Index 0", icon="ERROR")  # index invalid
         # else:
-        #    row.label(text="Vertex Mode", icon="VERTEXSEL")
+        #    boxFlow3.label(text="Vertex Mode", icon="VERTEXSEL")
 
 
 # button frame 'prev'
@@ -606,7 +606,7 @@ class KP_UI_BTN_ANIM_DEL_KEY_ALL(Operator):
 class KP_UI_BTN_ANIM_DEL_ALL_ANIM(Operator):
     '''remove all animation data'''
     bl_idname = "kp.ui_btn_driver_clear"
-    bl_label = "Clear Anim"
+    bl_label = "Clear All Anim"
     bl_options = {"REGISTER", "UNDO"}
     bl_description = ("Remove all animations and shape keys")
 
