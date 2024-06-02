@@ -296,8 +296,6 @@ class KINGPIN_FileSelect_folder_Params:
     )
 
 
-
-
 #########
 # print #
 def printStart_fn():
@@ -367,8 +365,7 @@ def get_collection(context):
     '''
     if hasattr(context, "collection"):
         return context.collection.objects  # B2.8
-    else:
-        return context.scene.groups
+    return context.scene.groups
 
 
 # ui input for colections
@@ -396,6 +393,15 @@ def get_objects_all(context):
         return context.view_layer.objects  # B2.8
     # else:
     return context.scene.objects
+
+def get_objects_active(context):
+    '''
+    2.80: <context.view_layer.objects.active>
+    2.79: <context.scene.objects.active>
+    '''
+    if hasattr(context, "view_layer"):
+        return context.view_layer.objects.active  # B2.8
+    return context.scene.objects.active
 
 
 def get_objects_selected(context):
@@ -493,15 +499,15 @@ def get_hide(context):
         return context.hide_viewport  # B2.8
     return context.hide
 
-def set_empty_draw_type(context, type):
+def set_empty_draw_type(context, e_type):
     '''
     2.80: <context.empty_draw_type>
     2.79: <context.empty_display_type>
      '''
     if hasattr(context, "empty_draw_type"):
-        context.empty_draw_type = type  # B3.0
+        context.empty_draw_type = e_type  # B3.0
     else:
-        context.empty_display_type = type
+        context.empty_display_type = e_type
 
 def set_mode_get_obj(context):
     '''set object mode=OBJECT, get active.object and selected.objects
@@ -516,13 +522,12 @@ def set_mode_get_obj(context):
         edit_mode = 'EDIT'
     # TODO add extra modes
 
-    #act_obj = bpy.context.active_object
-    act_obj = get_objects_all(context).active
+    act_obj = get_objects_active(context)
     if edit_mode != 'OBJECT':
         sel_obj = [act_obj]
         bpy.ops.object.mode_set(mode='OBJECT')
     else:
-        sel_obj = [o for o in get_objects_selected(context)] # bpy.context.selected_objects
+        sel_obj = get_objects_selected(context)[:] # bpy.context.selected_objects
 
     return edit_mode, act_obj, sel_obj
 
@@ -689,7 +694,6 @@ def set_layout_separator(ui_element, factor=1.0):
         ui_element.separator()
     else:
         ui_element.separator(factor=factor)
-
 
 
 def get_mesh_objects(array):

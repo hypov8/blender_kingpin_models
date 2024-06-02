@@ -488,10 +488,10 @@ def insertKey_kp(context, allVerts=False):
     frame_min = bpy.context.scene.frame_current - 0.01  # find close float
     frame_max = bpy.context.scene.frame_current + 0.01  #
 
-    edit_mode, act_obj, sel_obj = set_mode_get_obj(context)
-    sel_obj = get_mesh_objects(sel_obj)
+    edit_mode, _, sel_objs = set_mode_get_obj(context)
+    sel_obj = get_mesh_objects(sel_objs)
 
-    for obj in sel_obj: #[o for o in objects if o.type in {'MESH'}]:
+    for obj in sel_objs: #[o for o in objects if o.type in {'MESH'}]:
         sk_data = obj.data.shape_keys if hasattr(obj.data, 'shape_keys') else None  # 2.79 fix
         is_vertex = (not obj.active_shape_key and
                      not obj.active_shape_key_index and

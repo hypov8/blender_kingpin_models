@@ -274,8 +274,8 @@ def execute_export(self, context):
     cur_frame = bpy.context.scene.frame_current
 
     # store selected objects
-    cur_mode, act_obj, sel_obj = set_mode_get_obj(context)
-    self.objects_sel = get_mesh_objects(sel_obj)
+    cur_mode, act_obj, sel_objs = set_mode_get_obj(context)
+    self.objects_sel = get_mesh_objects(sel_objs)
     # store all scene objects
     self.objects_vis = get_mesh_objects(context.visible_objects)
     # valid mesh?
@@ -283,10 +283,10 @@ def execute_export(self, context):
         return {'FINISHED'}
 
     # deselect any objects
-    for obj in sel_obj: # .selected:  # bpy.data.objects:
+    for obj in sel_objs:
         set_select_state(context=obj, opt=False)
-    # for ob in act_obj: # .active: # bpy.data.objects:
-    set_select_state(context=act_obj, opt=False)
+    if act_obj:
+        set_select_state(context=act_obj, opt=False)
 
     # set output type
     ext = os.path.splitext(os.path.basename(self.filepath))[1]
@@ -301,15 +301,12 @@ def execute_export(self, context):
         return {'FINISHED'}
 
     Export_MD2_fn(self, context, self.filepath)
+    ##### export done #####
 
-    #######################
-    # done.
-    for obj in sel_obj:# select inital objects
+    bpy.context.scene.frame_set(cur_frame)  # set current frame
+    for obj in sel_objs: # select inital objects
         set_select_state(context=obj, opt=True)
-    # set current frame
-    bpy.context.scene.frame_set(cur_frame)
-    # return to edit mode
-    if act_obj:
+    if act_obj: # return to edit mode
         get_objects_all(bpy.context).active = act_obj
         bpy.ops.object.mode_set(mode=cur_mode)
 
