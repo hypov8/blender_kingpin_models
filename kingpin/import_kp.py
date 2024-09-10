@@ -287,6 +287,7 @@ class Kingpin_Model_Reader:
                     node_output = mat_nodes.new(type='ShaderNodeOutput')
                     mat_links.new(node_tex.outputs['Color'], node_output.inputs['Color'])
                     node_output.location = Vector((250, -120))
+                    node_tex.color_space = 'NONE' # set node/3d view to non sRGB
 
                 # try to load tga/pcx image
                 skinImg = load_kingpin_image(mdxPath=skin,
@@ -300,9 +301,10 @@ class Kingpin_Model_Reader:
                     prefix = str("%s  OK\n" % prefix)  # print(" OK")
                 # skinImg. mapping = 'UV' #2.7
                 skinImg.name = skin
+                skinImg.colorspace_settings.name = 'Linear' # set non sRGB (makes image brighter)
                 image_array.append(skinImg)
 
-                # link image to diffuse color
+                # link image to texture node
                 node_tex.image = skinImg
 
             # Materials Done
