@@ -11,6 +11,7 @@ blender compatability tools
 import bpy
 from timeit import default_timer as timer
 import bmesh
+from mathutils import Matrix
 from bpy.types import PropertyGroup
 from bpy.props import (
     StringProperty,
@@ -778,7 +779,11 @@ def getMeshArrays_fn(obj_group=None,
         bm.to_mesh(me)
         bm.free()
         if global_cords: # get vertex pos in global cords
-            me.transform(object.matrix_world)
+            if check_version(2, 80, 0) >= 0:  # B2.8
+                me.transform(Matrix() @ object.matrix_world)
+            else:
+                me.transform(Matrix() * object.matrix_world)
+
         if object.matrix_world.determinant() < 0.0:
             me.flip_normals()
             print("Note: transform is negative, normals fliped")

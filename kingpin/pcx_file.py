@@ -79,7 +79,7 @@ def read_pcx_file(imagepath="",
                 not version == 5 or # Version
                 not bits_pp == 8 or # Bits per Pixel
                 not encoding == 1): # Encoding Format
-            raise NameError("Invalid MDX file(version)")
+            raise NameError("Invalid PCX file(version)") # TODO print id
         # fill header details
 
         w = x_end - x_start + 1

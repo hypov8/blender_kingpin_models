@@ -47,6 +47,8 @@ from . common_kp import (
     IDX_XYZ_V,
     DATA_F_SCALE,
     DATA_F_COUNT,
+    DATA_V_BYTE,
+    DATA_V_COUNT
 )
 
 
@@ -653,7 +655,6 @@ class KINGPIN_UI_BUTTON_SMOOTH(Operator):
         printProgress_fn(0, 1, prefix)  # print progress
 
         # check for md2 data attached to object
-        hasAributes = True
         for oIdx, obj in enumerate(sel_objs):
             if DATA_F_SCALE not in obj.data or DATA_F_COUNT not in obj.data:
                 print("No scale data(try re-import mesh)")
@@ -683,11 +684,11 @@ class KINGPIN_UI_BUTTON_SMOOTH(Operator):
             dat_scale = obj.data[DATA_F_SCALE]
             dat_f_count = obj.data[DATA_F_COUNT]
             for fr in range(total_fr):
-                fr_cur = fr + start_fr
+                fr_cur = start_fr + fr
                 if fr_cur >= dat_f_count:
                     fr_cur = dat_f_count-1 # stop overflow.
                 for i in range(3):
-                    tmp_xyz[i] = dat_scale[fr_cur*3+i]
+                    tmp_xyz[i] = dat_scale[fr_cur*3+i] ###todo cleanup
                 fr_ob_scale[fr][oIdx] = (tmp_xyz[0], tmp_xyz[1], tmp_xyz[2])
 
         # store vertex pos data
@@ -704,10 +705,9 @@ class KINGPIN_UI_BUTTON_SMOOTH(Operator):
                     fcu = anim.action.fcurves[i*3+j] # x0, y0, z0, x1, y1, z1
                     # loop through frame time
                     for fr in range(total_fr):
-                        fr_cur = fr + start_fr
+                        fr_cur = start_fr + fr
                         if fr_cur >= dat_f_count:
                             fr_cur = dat_f_count-1 # stop overflow.
-
                         fr_ob_v_pos[fr][oIdx][i][j] = fcu.keyframe_points[fr_cur].co.y
 
         # if self.numFrames < 50 or (frame % 20) == 0:
@@ -720,55 +720,73 @@ class KINGPIN_UI_BUTTON_SMOOTH(Operator):
 
         ################################
         # smooth animations in mesh.
-        # todo animation types. shapekey, vert..
-        loop_fr = 0
-        if key_prop.ui_smooth_loop == False:
-            loop_fr = 1
+        loop_fr_count = total_fr
+        # loop_fr_count -= 1 if key_prop.ui_smooth_loop == False else 0
 
-        # mode 10.
-        # if key_prop.ui_smooth_method == '10':
-        for o_idx, obj in enumerate(sel_objs):
-            dat_f_count = obj.data[DATA_F_COUNT]
-            numVerts = len(obj.data.vertices)
-            for vIdx in range(numVerts):
-                tmp_fr = [0] * total_fr
-                for fr in range(total_fr - loop_fr): #-2 or exact frames
-                    fr_max = total_fr if key_prop.ui_smooth_loop else total_fr - fr
-                    fr_cur = fr + start_fr
-                    if fr_cur >= dat_f_count:
+
+        ################################
+        # fredz generted smooth function
+        def SmoothPoints_gaussian2(v_pos, v_scale, isLoop, sigma=1.0):
+            ''' smooth over 5 vertex pos '''
+            def gaussian_weight(distance, scale):
+                return  2.718281 ** (-0.5 * (distance / scale) ** 2)
+
+            len_array = len(v_pos)
+            ret_array = [0] * len_array
+
+            for fr in range(len_array):
+                sum_weights = 0
+                sum_positions = 0
+
+                for j in range(-2, 3):  # Consider previous 2 and next 2 frames
+                    fr2_idx = (fr + j)
+                    if not isLoop and (fr2_idx < 0 or fr2_idx >= len_array):
                         continue
-                    fr1_sc = fr_ob_scale[fr][o_idx]
-                    fr1_vPos = fr_ob_v_pos[fr][o_idx][vIdx]
-                    vShift = list(fr1_vPos)
-                    for i in range(3):
-                        j = 0
-                        while j < fr_max and j < 5:
-                            fr2_vPos = fr_ob_v_pos[(fr+j+1) % total_fr][o_idx][vIdx]
-                            diff_pos = fr2_vPos[i] - fr1_vPos[i]
-                            diff_pos_abs = abs(diff_pos)
-                            fr1_sc_x2 = fr1_sc[i]*2.5
-                            if diff_pos_abs < fr1_sc_x2:
-                                diff_pos_abs = (fr1_sc_x2 - diff_pos_abs) / fr1_sc[i]*2.0
-                                dif = diff_pos * min(1.0, diff_pos_abs)
-                                pow1 = (j*1+3)    # 2, 3, 4,  5,  6, , , , ,
-                                #pow2 = ((j+1)*2)  # 2, 4, 6,  8, 10, , , , ,
-                                #pow3 = 2 **(j+1)  # 2, 4, 8, 16, 32, , , , ,
-                                vShift[i] += dif/pow1
-                                j += 1
-                            else:
-                                j = 9999 # break loop
-                    tmp_fr[fr] = (vShift[0], vShift[1], vShift[2])
-                # write to vert cord
+                    fr2_vPos = v_pos[fr2_idx % len_array]
+                    diff_pos = fr2_vPos - v_pos[fr]
+                    diff_pos_abs = abs(diff_pos)
+
+                    diff_sc_abs = abs(v_scale[fr2_idx % len_array] * 2.5) # scale
+
+                    weight = gaussian_weight(diff_pos_abs, diff_sc_abs)
+                    sum_weights += weight
+                    sum_positions += weight * fr2_vPos
+
+                if sum_weights > 0:
+                    ret_array[fr] = (sum_positions / sum_weights) - v_pos[fr]
+                else:
+                    ret_array[fr] = 0
+
+            return ret_array
+        # end SmoothPoints_gaussian2
+
+        looped_anims = key_prop.ui_smooth_loop
+        for o_idx, obj in enumerate(sel_objs):
+            anim = obj.data.animation_data
+            dat_f_count = obj.data[DATA_F_COUNT]
+            for vIdx in range(len(obj.data.vertices)):
+                v_offs = vIdx * 3
                 for i in range(3):
-                    fcu = anim.action.fcurves[vIdx*3+i]
-                    for fr in range(total_fr - loop_fr):
-                        fr_cur = fr + start_fr
+                    vert_pos = []
+                    vert_scl = []
+                    for fr in range(loop_fr_count):
+                        fr_cur = start_fr + fr
                         if fr_cur >= dat_f_count:
+                            print("Error: end frame value larger then mdx file data")
                             continue
-                        fcu.keyframe_points[fr_cur].co = fr_cur, tmp_fr[fr][i]  # x,y cords
+                        vert_pos.append(fr_ob_v_pos[fr][o_idx][vIdx][i])
+                        vert_scl.append(fr_ob_scale[fr][o_idx][i])
+
+                    # process points
+                    smooth_data = SmoothPoints_gaussian2(vert_pos, vert_scl, looped_anims)
+
+                    # write new vertex cord
+                    fcu = anim.action.fcurves[v_offs + i]
+                    for fr, dat in enumerate(smooth_data):
+                        fcu.keyframe_points[start_fr + fr].co.y = vert_pos[fr] + dat
                     fcu.update()
 
-
+        # update
         for obj in sel_objs:
             # print("update..")
             obj.data.calc_normals_split()
