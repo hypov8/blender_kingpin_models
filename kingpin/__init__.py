@@ -166,10 +166,11 @@ todo:
 - extend hitbox with all scene objects(player seam)
 - optimize gl commands more. run fan first on verts with 6+ edges
 - md3 importer
--- export sets file name to mesh name (incomplete)
+- export sets file name to mesh name (incomplete)
 - q3toKP add jump variations
 - fix shape key to not use index0 (absolute)
-smooth vertex. using shape keys
+- smooth vertex. using shape keys
+- exoprt without a file extension errors and de-selects objects
 '''
 
 
@@ -224,7 +225,8 @@ if check_version(2, 80, 0) < 0:
 class KP_Preferences(AddonPreferences):
     ''' Preferences for addon
     '''
-    bl_idname = "kingpin"
+    bl_idname = __package__ # "kingpin"
+
     pref_kp_filename = BoolProperty(
         name="Use Mesh Name",
         description="Export file name as object name",

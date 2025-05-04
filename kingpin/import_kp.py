@@ -301,7 +301,7 @@ class Kingpin_Model_Reader:
                     prefix = str("%s  OK\n" % prefix)  # print(" OK")
                 # skinImg. mapping = 'UV' #2.7
                 skinImg.name = skin
-                skinImg.colorspace_settings.name = 'Linear' # set non sRGB (makes image brighter)
+                skinImg.colorspace_settings.name = 'Non-Color' # 'Linear' # set non sRGB (makes image brighter)
                 image_array.append(skinImg)
 
                 # link image to texture node
@@ -750,31 +750,31 @@ def load_kingpin_image(mdxPath, filePath, check_dupe, store_image):
     ''' load image file
         pcx loader added to view textures in 2.8+
     '''
+
+    def load_types(imgType, fileName, dir_name):
+        ''' load pcx or other'''
+        if imgType == '.pcx': # 2.8?
+            return read_pcx_file(fileName, dirname=dir_name,
+                                check_existing=check_dupe,
+                                md2_name=mdxPath,
+                                store_image=store_image)
+        else:
+            return load_image(fileName, dirname=dir_name, recursive=False,
+                            check_existing=check_dupe, force_reload=True)
+
+
     fileName = os.path.basename(mdxPath)
     f_ext = os.path.splitext(fileName)[1]
 
     # try internal mdx path first
     dir_name = os.path.dirname(mdxPath)
-    if f_ext == '.pcx': # 2.8?
-        image = read_pcx_file(fileName, dirname=dir_name,
-                              check_existing=check_dupe, md2_name=mdxPath,
-                              store_image=store_image)
-    else:
-        image = load_image(fileName, dirname=dir_name, recursive=False,
-                           check_existing=check_dupe, force_reload=True)
+    image = load_types(f_ext, fileName, dir_name)
     if image is not None:
         return image
 
     # try .mdx file path
     dir_name = os.path.dirname(filePath)
-    if f_ext == '.pcx':
-        image = read_pcx_file(fileName, dirname=dir_name,
-                              check_existing=check_dupe,
-                              md2_name=mdxPath,
-                              store_image=store_image)
-    else:
-        image = load_image(fileName, dirname=dir_name, recursive=False,
-                           check_existing=check_dupe, force_reload=True)
+    image = load_types(f_ext, fileName, dir_name)
     if image is not None:
         return image
 
@@ -787,15 +787,8 @@ def load_kingpin_image(mdxPath, filePath, check_dupe, store_image):
 
     fullpath = bpy.path.native_pathsep(filePath + mdxPath)
     dir_name = os.path.dirname(fullpath)
-    if f_ext == '.pcx':
-        image = read_pcx_file(fileName, dirname=dir_name,
-                              check_existing=check_dupe,
-                              md2_name=mdxPath,
-                              store_image=store_image)
-    else:
-        image = load_image(fileName, dirname=dir_name, recursive=False,
-                           check_existing=check_dupe, force_reload=True)
-    # return image
+    image = load_types(f_ext, fileName, dir_name)
+
     return image
 
 

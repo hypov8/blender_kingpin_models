@@ -151,7 +151,7 @@ class KINGPIN_Export_props(PropertyGroup):
         name="Format",
         description="Choose which format to export",
         items=((".md2", "MD2", ""), (".mdx", "MDX", "")),
-        default=".md2"
+        default=".mdx"
     )
     ui_opt_export_name = StringProperty(
         name="File",
@@ -276,7 +276,7 @@ def execute_export(self, context):
     # store selected objects
     cur_mode, act_obj, sel_objs = set_mode_get_obj(context)
     self.objects_sel = get_mesh_objects(sel_objs)
-    # store all scene objects
+    # store all scene objects (bbox size)
     self.objects_vis = get_mesh_objects(context.visible_objects)
     # valid mesh?
     if not is_selected_mesh(self, self.objects_sel):
@@ -342,7 +342,7 @@ class KINGPIN_Export_Dialog(Operator, ExportHelper, KINGPIN_FileSelect_md2_Param
             return {'CANCELLED'}
 
         user_prefs = get_addon_preferences(context)
-        if user_prefs.pref_kp_filename:
+        if user_prefs and user_prefs.pref_kp_filename:
             fname = os.path.splitext(obj_sel[0].name)
             if fname[1] == '.mdx':
                 self.filepath = obj_sel[0].name

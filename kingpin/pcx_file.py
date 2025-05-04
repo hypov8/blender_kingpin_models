@@ -120,7 +120,7 @@ def read_pcx_file(imagepath="",
 
     ######################
     # write new image data
-    img = bpy.data.images.new(md2_name, width=w, height=h)
+    img = bpy.data.images.new(md2_name, width=w, height=h, alpha=True)
     rgb_image = [] # * w * h
     for y in range(h-1, -1, -1):
         for x in range(w):
@@ -134,7 +134,11 @@ def read_pcx_file(imagepath="",
                 rgb_image.append(1.0)
 
     img.pixels = rgb_image
+    img.file_format = 'PNG'
     if store_image:
-        img.pack()
+        if bpy.app.version < (2, 80, 0):
+            img.pack(as_png=True)
+        else:
+            img.pack()
 
     return img
