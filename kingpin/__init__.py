@@ -1,4 +1,5 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
+"""
+***** BEGIN GPL LICENSE BLOCK *****
 
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -16,14 +17,14 @@
 
 # ***** END GPL LICENCE BLOCK *****
 
-'''
+##################
 This script is an importer and exporter for Quake2/Kingpin Models .md2 and .mdx.
 Including extra tools for vertex animated models
 
 The frames are named <frameName><N> with :<br>
 - <N> the frame number<br>
 - <frameName> the name choosen at the last marker
-                (or 'frame' if the last marker has no name or if there is no last marker)
+                (or "frame" if the last marker has no name or if there is no last marker)
 
 Skins can be set using image textures or materials.
     if it is longer than 63 characters it is truncated.
@@ -102,6 +103,19 @@ v1.2.6
 - addon preference. export file name as mesh name. with md2/mdx choice
 - added import/export button to tool menu
 
+v1.2.7
+- fixed importing frame names to wrong "scene"
+- set smooth angle to 180 on blender <4.1. was inconsistant
+- using numpy to speed up arrays
+- export player with all scene objects processed. combining multiple head/body/legs.
+    this includes optional wep/extras export as seperate files.
+    also includes hitbox feature, eg head.001 and head.002 will be head.mdx with 2 hitbox
+- read import file in large chunks
+- added vertex merging option for importer
+- clean up and increase speed of Quake3 to Kingpin tool
+- added blender 4.4+ fix from SaintBaron repo. fcurves changes
+
+
 
 
 notes
@@ -167,28 +181,37 @@ todo:
 - optimize gl commands more. run fan first on verts with 6+ edges
 - md3 importer
 - export sets file name to mesh name (incomplete)
-- q3toKP add jump variations
-- fix shape key to not use index0 (absolute)
-- smooth vertex. using shape keys
-- exoprt without a file extension errors and de-selects objects
-'''
-
+- smooth vertex, using shape keys
+- smooth vertex, optional smooth methods
+##################
+"""
 
 bl_info = {
     "name": "Kingpin Models (md2, mdx)",
     "description": "Import/export Kingpin compatible model (md2/mdx)",
     "author": "Update by HypoV8. See _init_.py for contributors",
-    "version": (1, 2, 6),
+    "version": (1, 2, 7, 0),
     "blender": (2, 80, 0),
     "location": "File > Import/Export > Kingpin Models",
     "warning": "",  # used for warning icon and text in addons panel
     "tracker_url": "https://github.com/hypov8/blender_kingpin_models",
     "wiki_url": "https://kingpin.info/",
     "doc_url": "https://kingpin.info/",
-    "support": 'COMMUNITY',
+    "support": "COMMUNITY",
     "category": "Import-Export"
 }
 
+
+import sys
+from . import (
+    anim,
+    common_kp,
+    export_kp,
+    import_kp,
+    pcx_file,
+    q3_to_kp,
+    tools #todo name
+)
 import bpy
 from bpy.types import WindowManager, AddonPreferences
 from bpy.props import PointerProperty, BoolProperty
@@ -201,7 +224,7 @@ from . common_kp import (
     get_menu_import,
     get_menu_export
 )
-from . import  tools, anim, q3_to_kp
+# from . import tools, anim, q3_to_kp
 from . q3_to_kp import KINGPIN_Q3toKP_props
 from . anim import KINGPIN_Anim_props
 from . tools import KINGPIN_Tools_props
@@ -216,71 +239,68 @@ from . export_kp import (
     KINGPIN_Export_Button,
     KINGPIN_Export_Button_Folder,
     KINGPIN_Export_Button_File
-    )
+)
 
 if check_version(2, 80, 0) < 0:
     bl_info["blender"] = (2, 79, 0)
 
 
-class KP_Preferences(AddonPreferences):
-    ''' Preferences for addon
-    '''
-    bl_idname = __package__ # "kingpin"
+class KINGPIN_Preferences(AddonPreferences):
+    """ Preferences for addon """
+    bl_idname = __name__  # __package__  # "kingpin"
 
-    pref_kp_filename = BoolProperty(
+    pref_kp_meshname = BoolProperty(
         name="Use Mesh Name",
-        description="Export file name as object name",
+        description="Export using object name, instead of blend filename",
         default=False
     )
     pref_kp_file_ext = BoolProperty(
-        name="Default .mdx",
+        name="Default file .mdx",
         description="add mdx instead of md2 as default extension(when missing)",
         default=False
     )
     pref_kp_import_button_use_dialog = BoolProperty(
-        name="Button Uses Import Window",
-        description="Show only an export button in tool panel",
-        default=True
+        name="Show Import as Button",
+        description="Show only an export button in tool panel.\n" +
+                    "Button loads import window.",
+        default=True,
     )
     pref_kp_export_button_use_dialog = BoolProperty(
-        name="Button Uses Export Window",
-        description="Show only an export button in tool panel",
+        name="Show Export as Button",
+        description="Show only an export button in tool panel.\n" +
+                    "Button loads export window.",
         default=False
     )
 
     def draw(self, _):
-        ''' draw '''
-        layout = self.layout
+        """ draw """
+        layout = self.layout  # pylint: disable=no-member
         box = layout.box()
         row = box.row()
-        row.label(text='Export Dialog options')
+        row.label(text="Export Dialog")
         row = box.row()
-        row.prop(self, "pref_kp_filename")
-        if self.pref_kp_filename:
-            row.prop(self, "pref_kp_file_ext")
-        #import options
+        row.prop(self, "pref_kp_meshname")
+        # if self.pref_kp_meshname:
+        row.prop(self, "pref_kp_file_ext")
+        # import options
         box = layout.box()
         row = box.row()
-        row.label(text='Import Tool Panel')
+        row.label(text="Tool Panel")
         row = box.row()
-        row.enabled = False
-        row.prop(self, "pref_kp_import_button_use_dialog")
-        # export options
-        box = layout.box()
-        row = box.row()
-        row.label(text='Export Tool Panel')
-        row = box.row()
+        col1 = row.column()
+        col1.enabled = False
+        col1.prop(self, "pref_kp_import_button_use_dialog")
         row.prop(self, "pref_kp_export_button_use_dialog")
 
 
 # blender UI menu.
 # file > export
-def menu_func_export(self, context):
+def menu_func_export(self, _):
     self.layout.operator(KINGPIN_Export_Dialog.bl_idname, text="Kingpin Models (md2, mdx)")
 
 
 # file > import
-def menu_func_import(self, context):
+def menu_func_import(self, _):
     self.layout.operator(KINGPIN_Import_Dialog.bl_idname, text="Kingpin Models (md2, mdx)")
 
 
@@ -294,7 +314,7 @@ classes = (
 )
 
 classes_props = (  # convert to py3
-    KP_Preferences,
+    KINGPIN_Preferences,
     KINGPIN_Import_props,
     KINGPIN_Export_props,
     KINGPIN_Tools_props,
@@ -321,20 +341,27 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    anim.register()
     tools.register()
+    anim.register()
     q3_to_kp.register()
+
     # menu
     get_menu_export().append(menu_func_export)
     get_menu_import().append(menu_func_import)
 
 
 def unregister():
-    get_menu_export().remove(menu_func_export)
+    # menu
     get_menu_import().remove(menu_func_import)
-    for cls in classes:
+    get_menu_export().remove(menu_func_export)
+
+    q3_to_kp.unregister()
+    anim.unregister()
+    tools.unregister()
+
+    for cls in reversed(classes_props):
         bpy.utils.unregister_class(cls)
-    for cls in classes_props:
+    for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
     del WindowManager.kp_import_
@@ -343,10 +370,6 @@ def unregister():
     del WindowManager.kp_tool_
     del WindowManager.kp_q3tokp_
     del WindowManager.kp_anim_
-
-    q3_to_kp.unregister()
-    anim.unregister()
-    tools.unregister()
 
 
 if __name__ == "__main__":

@@ -109,3 +109,15 @@ v1.2.6
 - added custom vertex normal export option (use for players with seams)
 - addon preference. export file name as mesh name. with md2/mdx choice
 - added import/export butting to tool menu
+
+v1.2.7
+- fixed importing frame names to wrong "scene"
+- set smooth angle to 180 on blender <4.1. was inconsistant
+- using numpy to speed up arrays
+- export player with all scene objects processed. combining multiple head/body/legs.
+    this includes optional wep/extras export as seperate files.
+    also includes hitbox feature, eg head.001 and head.002 will be head.mdx with 2 hitbox
+- read import file in large chunks
+- added vertex merging option for importer
+- clean up and increase speed of Quake3 to Kingpin tool
+- added blender 4.4+ fix from SaintBaron repo. fcurves changes

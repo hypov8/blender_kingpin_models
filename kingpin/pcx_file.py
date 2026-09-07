@@ -1,8 +1,7 @@
-# pylint: disable=invalid-name
-'''
-    load kingpin pcx file format
 
-'''
+"""
+    load kingpin pcx file format
+"""
 
 
 import os
@@ -60,8 +59,7 @@ def read_pcx_file(imagepath="",
     w = 0
     h = 0
 
-    f = open(file=filepath, mode="rb")
-    try:
+    with open(file=filepath, mode="rb") as f:
         # read header
         buff = f.read(struct.calcsize("<4B6H"))
         data = struct.unpack("<4B6H", buff) #4B6H50B4H54B
@@ -108,8 +106,6 @@ def read_pcx_file(imagepath="",
                 img_data.append(ch[0])
                 ptr += 1
                 rep -= 1
-    finally:
-        f.close()
 
     ####################
     # check invalid data
@@ -121,14 +117,14 @@ def read_pcx_file(imagepath="",
     ######################
     # write new image data
     img = bpy.data.images.new(md2_name, width=w, height=h, alpha=True)
-    rgb_image = [] # * w * h
-    for y in range(h-1, -1, -1):
+    rgb_image = []  # * w * h
+    for y in range(h - 1, -1, -1):
         for x in range(w):
             pal_idx = img_data[y * w + x] * 3
             rgb_image.append(pal_data[pal_idx + 0] / 255)
             rgb_image.append(pal_data[pal_idx + 1] / 255)
             rgb_image.append(pal_data[pal_idx + 2] / 255)
-            if pal_idx == 765: # alpha (256 * 3) - 3
+            if pal_idx == 765:  # alpha (256 * 3) - 3
                 rgb_image.append(0.0)
             else:
                 rgb_image.append(1.0)

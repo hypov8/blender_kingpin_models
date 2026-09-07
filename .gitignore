@@ -1,2 +1,6 @@
 kingpin/git/*
 kingpin/_old/*
+kingpin/__pycache__/*
+_zip/*
+.vscode/*
+
