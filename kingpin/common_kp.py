@@ -472,6 +472,10 @@ def string_to_bytes(s: str, count) -> bytes:
         b = b[:count -1]  # truncate, leave room for null
     return b.ljust(count, b'\0')  # pad with nulls to fill 64
 
+def string_from_bytes(src: bytes) -> str:
+    """ search first hex null """
+    return src.split(b'\x00', 1)[0].decode('latin-1')
+
 
 def forceMinMaxRange(value, min_, max_):
     ''' _ '''
@@ -568,6 +572,56 @@ class KINGPIN_FileSelect_folder_Params:
         default=True,
         options={"HIDDEN"}
     )
+
+
+class KINGPIN_FileSelect_file_Params_tga:
+    """ common folder select dialog paramaters
+        2.79/2.80
+    """
+    directory = StringProperty(
+        name="Outdir Path",
+        description="Folder to save models."
+    )  # subtype="DIR_PATH"
+    filter_folder = BoolProperty(
+        default=False,
+        options={"HIDDEN"}
+    )
+    filter_glob = StringProperty(
+        default="*.tga",
+        options={'HIDDEN'},
+        maxlen=255,
+    )
+
+
+class TexturePacker:
+    """ Manages 2D space allocation for the texture atlas """
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        # Track available spaces as [x, y, width, height]
+        self.free_rects = [[0, 0, width, height]]
+
+    def pack(self, img_w, img_h):
+        """ Finds the best empty slot, places the image, and splits the remaining space """
+        for i, rect in enumerate(self.free_rects):
+            rx, ry, rw, rh = rect
+
+            # Check if the texture fits in this free slot
+            if img_w <= rw and img_h <= rh:
+                self.free_rects.pop(i)
+
+                # Guillotine split method
+                rem_w = rw - img_w
+                rem_h = rh - img_h
+
+                if rem_w > 0: # Create a free column to the right
+                    self.free_rects.append([rx + img_w, ry, rem_w, img_h])
+                if rem_h > 0: # Create a free row above
+                    self.free_rects.append([rx, ry + img_h, rw, rem_h])
+
+                return rx, ry
+
+        return None # Out of space
 
 
 #########
@@ -1213,7 +1267,8 @@ def readChunkToList(file, data_str: str, read_len: int):
     chunk_size = struct.calcsize(data_str)
     total_size = read_len * chunk_size
     buff = file.read(chunk_size * read_len)
-    return [struct.unpack(data_str, buff[i:i + chunk_size]) for i in range(0, total_size, chunk_size)]
+    return [struct.unpack(data_str, buff[i:i + chunk_size])
+        for i in range(0, total_size, chunk_size)]
 
 
 def readChunk(file, data_str: str, read_len: int):

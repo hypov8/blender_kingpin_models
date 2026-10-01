@@ -12,14 +12,18 @@ md2 smooth mesh
 """
 
 
+import os
 import bpy
 from bpy.types import Operator, Panel, Object, PropertyGroup
-from bpy.props import BoolProperty, IntProperty, PointerProperty
+from bpy.props import BoolProperty, IntProperty, PointerProperty, StringProperty
+from bpy_extras.io_utils import ImportHelper
 from mathutils import Vector, kdtree  # Matrix, Euler
 from math import radians
 from .export_kp import draw_export
 from .import_kp import draw_import
 from . import common_kp as kpc
+import numpy as np
+import itertools
 
 
 # Property Definitions
@@ -132,6 +136,23 @@ class KINGPIN_Tools_props(PropertyGroup):
             "Note: used for idle, walking etc. Not taunt, jump, death etc"
         ),
         default=True,
+    )
+    ###############
+    # UI UV Merge #
+    ui_uvmerge_max = IntProperty(
+        name="Max dimension:",
+        min=32,
+        max=1024,
+        default=512,
+        description="Set the max image size. Width or height, scaled",
+    )
+    ui_uvmerge_path = StringProperty(
+        name="Path",
+        description="Output image file",
+        options={"HIDDEN"},
+        default="tris.tga",
+        maxlen=1024,
+        subtype="NONE"
     )
 
 
@@ -304,10 +325,45 @@ class KINGPIN_PT_Tool_GUI_SMOOTH(Panel):
         row.operator("kp.ui_btn_smooth")
 
 
+# -=| GUI |=- #4 UV Merger
+class KINGPIN_PT_Tool_GUI_UV_MERGE(Panel):
+    """ merge multiple materials into 1 image, fix uv"""
+    bl_space_type = "VIEW_3D"
+    bl_region_type = kpc.set_ui_panel_string()
+    bl_category = "Kingpin"
+    bl_label = "MD2 UV Merge"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        kp_tool = context.window_manager.kp_tool_
+        layout = self.layout
+        box = layout.box()
+        row = box.column_flow(columns=1, align=True)
+        # row.prop(kp_tool, "ui_uvmerge_max")
+        # row.prop(kp_tool, "ui_uvmerge_path")
+
+        # folder string
+        row = box.row(align=True)
+        col1 = row.column()
+        col1.alignment = "EXPAND"
+        col1.enabled = False  # input box (no edit)
+        col1.prop(kp_tool, "ui_uvmerge_path")
+        # folder button
+        col2 = row.column()
+        col2.alignment = "RIGHT"
+        col2.operator(
+            "kp.uvmerge_file_picker", translate=False, icon="FILE_FOLDER", text=""
+        )
+
+        # button
+        row = layout.row()
+        row.alignment = "CENTER"
+        row.operator("kp.ui_btn_uvmerge")
+
+
 # button add vertex keyframes animation
 class KINGPIN_UI_BUTTON_DRIVER(Operator):
-    """Drivers"""
-
+    """ Drivers """
     bl_idname = "kp.ui_btn_driver"
     bl_label = "Animate Mesh"
     bl_options = {"REGISTER", "UNDO"}
@@ -553,8 +609,7 @@ class KINGPIN_UI_BUTTON_GRID(Operator):
             [width[0], width[1], 0],
         ]
         midXYZ = [
-            [objMin[0], (width[1] / 2 + objMin[1]),
-             (width[2] / 2 + objMin[2])],
+            [objMin[0], (width[1] / 2 + objMin[1]), (width[2] / 2 + objMin[2])],
             [(width[0] / 2 + objMin[0]), objMin[1], (width[2] / 2 + objMin[2])],
             [(width[0] / 2 + objMin[0]), (width[1] / 2 + objMin[1]), objMin[2]],
         ]
@@ -579,12 +634,12 @@ class KINGPIN_UI_BUTTON_GRID(Operator):
             obj = kpc.get_objects_active(context)
             if not obj or obj.name[0:4] != "Grid":
                 raise ValueError("Could not select grid")
-
-            obj.name = names[(i + 2) % 3]  # z first
-            obj.dimensions = widthXYZ[(i + 2) % 3]
-            obj.location = midXYZ[(i + 2) % 3]
+            idx = (i + 2) % 3
+            obj.name = names[idx]  # z first
+            obj.dimensions = widthXYZ[idx]
+            obj.location = midXYZ[idx]
             obj.rotation_mode = "XYZ"
-            obj.rotation_euler = rotXYZ[(i + 2) % 3]
+            obj.rotation_euler = rotXYZ[idx]
             obj.show_all_edges = True
             obj.show_wire = key_prop.ui_use_wire
             drawType = "SOLID" if key_prop.ui_use_solid else "WIRE"
@@ -602,6 +657,252 @@ class KINGPIN_UI_BUTTON_GRID(Operator):
             kpc.set_objects_active(bpy.context, act_obj)
             bpy.ops.object.mode_set(mode=edit_mode)
 
+        return {"FINISHED"}
+
+# button grid
+class KINGPIN_UI_BUTTON_UVMERGE(Operator):
+    bl_idname = "kp.ui_btn_uvmerge"
+    bl_label = "Merge UV"
+    bl_options = {'REGISTER', 'UNDO'}
+    bl_description = (
+        "Merge all materials assigned to the mesh and moves UV to match texture.\n"
+        "A new image will be created and saved externaly.\n"
+        "CAUTION: make sure you have a backup"
+    )
+
+    def execute(self, context):
+        """ get all materials and merge into one UV """
+
+        def get_next_multiple_of_16(value):
+            if value <= 16:
+                return 16
+            return ((value + 15) // 16) * 16
+        # end get_next_multiple_of_16
+
+        obj = kpc.get_objects_active(context)
+        if not obj or obj.type != 'MESH':
+            self.report({'ERROR'}, "Select a mesh object first.")
+            return {'CANCELLED'}
+
+        kp_tool = context.window_manager.kp_tool_
+        target_path = kp_tool.ui_uvmerge_path
+        atlas_res = int(kp_tool.ui_uvmerge_max) # e.g. 1024 or 2048
+
+        if not target_path:
+            self.report({'ERROR'}, "Please select a destination TGA path.")
+            return {'CANCELLED'}
+
+        # 1. GATHER RAW IMAGES
+        raw_images = []
+        for index, slot in enumerate(obj.material_slots):
+            mat = slot.material
+            if mat and mat.node_tree:
+                for node in mat.node_tree.nodes:
+                    if node.type == 'TEX_IMAGE' and node.image:
+                        img = node.image
+                        # Avoid adding identical image data blocks twice
+                        if img not in [item['img'] for item in raw_images]:
+                            raw_images.append({
+                                'idx': index,
+                                'img': img,
+                                'w': img.size[0],
+                                'h': img.size[1]
+                            })
+
+        if len(raw_images) < 2:
+            self.report({'ERROR'}, "No textures found to merge.")
+            return {'CANCELLED'}
+
+        # 2. DEFINE OPTIMIZATION SORT STRATEGIES
+        sort_strategies = [
+            lambda item: item['h'],                # Height
+            lambda item: item['w'],                # Width
+            lambda item: item['w'] * item['h'],    # Area
+            lambda item: max(item['w'], item['h'])  # Max side
+        ]
+
+        best_score = float('inf')
+        best_image_positions = {}
+        final_w = atlas_res
+        final_h = atlas_res
+
+        # 3. PERMUTATION LOOP (Find best packing arrangement)
+        for strategy in sort_strategies:
+            sorted_items = sorted(raw_images, key=strategy, reverse=True)
+            num_images = len(sorted_items)
+
+            # This generates a list of all binary combinations: e.g., [(False, False), (False, True), (True, False)...]
+            # It creates a true independent pass for every permutation of rotated/unrotated states
+            all_rotation_combinations = list(itertools.product([False, True], repeat=num_images))
+
+            for rotation_mask in all_rotation_combinations:
+                test_packer = kpc.TexturePacker(atlas_res, atlas_res)
+                test_positions = {}
+                max_x, max_y = 0, 0
+                failed = False
+
+                # Loop through the sorted items using an enumerator index
+                for idx, item in enumerate(sorted_items):
+                    w, h = item['w'], item['h']
+                    is_rotated = False
+
+                    # Read the independent true/false flag out of the current combination mask
+                    if rotation_mask[idx] is True:
+                        w, h = h, w  # Rotate this specific image regardless of its original shape
+                        is_rotated = True
+
+                    packed_coord = test_packer.pack(w, h)
+                    if packed_coord is None:
+                        failed = True
+                        break
+
+                    px, py = packed_coord
+                    test_positions[item['idx']] = {
+                        'x': px, 'y': py, 'w': w, 'h': h, 'rotated': is_rotated, 'img': item['img']
+                    }
+
+                    if px + w > max_x:
+                        max_x = px + w
+                    if py + h > max_y:
+                        max_y = py + h
+
+                if failed:
+                    continue
+
+                test_w = get_next_multiple_of_16(max_x)
+                test_h = get_next_multiple_of_16(max_y)
+                test_area = test_w * test_h
+
+                if test_area < best_score:
+                    best_score = test_area
+                    final_w = test_w
+                    final_h = test_h
+                    best_image_positions = test_positions.copy()
+
+
+        # 4. BLIT PIXELS INTO THE TIGHT ATLAS
+        master_pixels = np.zeros((atlas_res, atlas_res, 4), dtype=np.float32)
+
+        for mat_idx, pos in best_image_positions.items():
+            img = pos['img']
+            src_w, src_h = img.size
+            px, py = pos['x'], pos['y']
+
+            # Pull raw pixel source array safely via NumPy
+            src_pixels = np.array(img.pixels, dtype=np.float32).reshape(src_h, src_w, 4)
+
+            # Apply 90-degree counter-clockwise rotation matrix if optimization picked it
+            if pos['rotated']:
+                src_pixels = np.rot90(src_pixels, k=1)
+                # Match the flipped dimensions for array insertion
+                src_w, src_h = src_h, src_w
+
+            master_pixels[py : py + src_h, px : px + src_w] = src_pixels
+
+        # Crop the canvas buffer down to our winning 16px multiple bounding boundaries
+        cropped_pixels = master_pixels[0:final_h, 0:final_w]
+
+        # Create the unified texture reference inside Blender project data
+        master_img = bpy.data.images.new("master_atlas", width=final_w, height=final_h, alpha=True)
+        master_img.pixels = cropped_pixels.ravel()
+        master_img.update()
+
+        # Save physical TGA file asset
+        master_img.filepath_raw = target_path
+        master_img.file_format = 'TARGA'
+        master_img.save()
+
+        # 5. REMAP THE GEOMETRY MESH UVs
+        current_mode = obj.mode
+        if current_mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        mesh = obj.data
+        uv_layer = mesh.uv_layers.active
+        if not uv_layer:
+            uv_layer = mesh.uv_layers.new(name="Merged_UV")
+
+        for poly in mesh.polygons:
+            mat_idx = poly.material_index
+
+            if mat_idx in best_image_positions:
+                pos = best_image_positions[mat_idx]
+                offset_x, offset_y = pos['x'], pos['y']
+                orig_w, orig_h = pos['img'].size
+
+                for loop_idx in poly.loop_indices:
+                    uv_loop = uv_layer.data[loop_idx]
+                    current_uv = uv_loop.uv
+
+                    if pos['rotated']:
+                        # FIX: Swap U and V, and invert the V coordinate to resolve the vertical flip
+                        pixel_x = current_uv.y * orig_h
+                        pixel_y = (1.0 - current_uv.x) * orig_w  # Inverts top/bottom safely
+
+                        new_x = (pixel_x + offset_x) / final_w
+                        new_y = (pixel_y + offset_y) / final_h
+                    else:
+                        # Standard matching layout path for non-rotated elements
+                        new_x = ((current_uv.x * orig_w) + offset_x) / final_w
+                        new_y = ((current_uv.y * orig_h) + offset_y) / final_h
+
+                    uv_loop.uv = (new_x, new_y)
+
+        # 6. ASSIGN MASTER MATERIAL
+        obj.data.materials.clear()
+        master_mat = bpy.data.materials.new(name="Master_Atlas_Material")
+        obj.data.materials.append(master_mat)
+
+        master_mat.use_nodes = True
+        nodes = master_mat.node_tree.nodes
+        links = master_mat.node_tree.links
+        nodes.clear()
+
+        node_output = nodes.new(type='ShaderNodeOutputMaterial')
+        node_principled = nodes.new(type='ShaderNodeBsdfPrincipled')
+        node_texture = nodes.new(type='ShaderNodeTexImage')
+
+        node_texture.image = master_img
+        links.new(node_texture.outputs['Color'], node_principled.inputs['Base Color'])
+        links.new(node_principled.outputs['BSDF'], node_output.inputs['Surface'])
+
+        if current_mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode=current_mode)
+
+        self.report({'INFO'}, "Optimized layout generated at %ix%i!" % (final_w, final_h))
+        return {"FINISHED"}
+
+
+# button uvmerge file
+class KINGPIN_UI_BUTTON_UVMERGE_file_picker(Operator,
+         ImportHelper, kpc.KINGPIN_FileSelect_file_Params_tga):
+    """ export combined uv file name/path """
+    bl_idname = "kp.uvmerge_file_picker" #export_button_folder
+    bl_label = "Select TGA File"  # icon
+    # bl_options = {'REGISTER'}
+    # bl_description = "Copy selected objects @name to @file input box"
+    # check_extension = True  # 2.8 allow typing md2/mdx
+    filename_ext = ".tga"
+    use_filter_folder = True
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def check(self, context):
+        """Intercepts the path and forces the .tga extension"""
+        print("check")
+        if self.filepath:
+            root, ext = os.path.splitext(self.filepath)
+            if ext.lower() != ".tga":
+                self.filepath = root + ".tga"
+                return True # Updates the text box inside the file browser UI
+        return False
+
+    def execute(self, context):
+        kp_tool_ = context.window_manager.kp_tool_
+        kp_tool_.ui_uvmerge_path = self.filepath
+        # self.report({'INFO'}, f"Saved TGA path: {self.filepath}")
         return {"FINISHED"}
 
 
@@ -682,29 +983,29 @@ class KINGPIN_UI_BUTTON_SMOOTH(Operator):
             dat_byte = obj.data[kpc.DATA_V_BYTE]
             dat_f_count = obj.data[kpc.DATA_F_COUNT]
             dat_v_count = obj.data[kpc.DATA_V_COUNT]
+            if dat_v_count != len(obj.data.vertices):
+                print("ERROR: object %s vertex count changed since import"% (obj.name))
+                continue
+
+            # flat to 2d
             for fr in range(total_fr):
-                fr_cur = start_fr + fr
-                if fr_cur >= dat_f_count:
-                    fr_cur = dat_f_count - 1  # stop overflow.
-
+                fr_cur = min(start_fr + fr, dat_f_count - 1) # stop overflow.
+                # scale data
                 vert_idx = fr_cur * 3
-                fr_ob_scale[fr][oIdx] = (
-                    dat_scale[vert_idx],
-                    dat_scale[vert_idx + 1],
-                    dat_scale[vert_idx + 2],
-                )
-
+                fr_ob_scale[fr][oIdx] = dat_scale[vert_idx:vert_idx + 3]
+                # vertex data
                 vert_idx = fr_cur * dat_v_count * 3 # TODO numpy
                 for v in range(dat_v_count):
-                    fr_ob_v_byte[fr][oIdx][v] = (
-                        dat_byte[vert_idx],
-                        dat_byte[vert_idx + 1],
-                        dat_byte[vert_idx + 2],
-                )
+                    off = vert_idx + v*3
+                    fr_ob_v_byte[fr][oIdx][v] = dat_byte[off:off + 3]
 
         # store vertex pos data
         for oIdx, obj in enumerate(sel_objs):
             dat_f_count = obj.data[kpc.DATA_F_COUNT]
+            dat_v_count = obj.data[kpc.DATA_V_COUNT]
+            if dat_v_count != len(obj.data.vertices):
+                continue # skip invalid
+
             anim = obj.data.animation_data
             if anim is None or anim.action is None:
                 print("No animation data(import anim as vertex)")
@@ -853,11 +1154,14 @@ classes = (
     KINGPIN_UI_BUTTON_GRID,
     KINGPIN_UI_BUTTON_DRIVER,
     KINGPIN_UI_BUTTON_SMOOTH,
+    KINGPIN_UI_BUTTON_UVMERGE,
+    KINGPIN_UI_BUTTON_UVMERGE_file_picker,
     KINGPIN_PT_Tool_GUI_IMPORT,
     KINGPIN_PT_Tool_GUI_EXPORT,
     KINGPIN_PT_Tool_GUI_GRID,
     KINGPIN_PT_Tool_GUI_SMOOTH,
     KINGPIN_PT_Tool_GUI_DEFORM,
+    KINGPIN_PT_Tool_GUI_UV_MERGE,
 )
 
 

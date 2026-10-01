@@ -646,6 +646,7 @@ class Kingpin_Model_Reader:
 
         # bug in 2.79. retime sets base to 10.00
         if sk_type == kpc.SK_MODE_ABS and kpc.check_version(2, 80, 0) < 0:
+            obj.active_shape_key_index = 0
             bpy.ops.object.shape_key_retime()
 
         if sk_type in (kpc.SK_MODE_REL, kpc.SK_MODE_ABS):
@@ -680,11 +681,10 @@ class Kingpin_Model_Reader:
                 inFile.seek(self.hdr.ofsSkins, 0)
                 chunk = kpc.readChunkToList(
                     inFile, "<64s", self.hdr.numSkins)  # .split(b"\x00")
-                self.skins = [
-                    (asciiz(skin[0].decode("utf-8", errors="replace"))) for skin in chunk]
+                self.skins = [kpc.string_from_bytes(skin[0]) for skin in chunk]
 
         def _read_uv(self, inFile):
-            # UV (software 1byte texture cords)
+            # UV (software 2byte texture cords)
             if not self.isMdx and self.hdr.numGLCmds <= 1:
                 #
                 start_tex_time = kpc.printStart_fn()  # reset timmer
@@ -695,9 +695,10 @@ class Kingpin_Model_Reader:
                 inFile.seek(self.hdr.ofsUV, 0)
                 chunk = kpc.readChunkToList(inFile, "<2h", self.hdr.numUV)
                 for i in range(self.hdr.numUV):
-                    self.uv_cords.insert(
-                        i,
-                        (chunk[i][0] / self.hdr.skinWidth, 1 - (chunk[i][1] / self.hdr.skinHeight)))
+                    self.uv_cords.append((
+                        chunk[i][0] / self.hdr.skinWidth,
+                        1 - (chunk[i][1] / self.hdr.skinHeight))
+                    )
 
                 # Tris (non GLCommand)
                 inFile.seek(self.hdr.ofsTris, 0)
@@ -800,9 +801,10 @@ class Kingpin_Model_Reader:
                 # read frame headder
                 buff = inFile.read(struct.calcsize("<6f16s"))
                 data = struct.unpack("<6f16s", buff)
-                scale = (data[0], data[1], data[2])  # scale
-                minXYZ = (data[3], data[4], data[5])  # model XYZ location
-                self.store_fr_scale += [data[0], data[1], data[2]]
+                scale = data[0:3]  # scale
+                minXYZ = data[3:6]  # model XYZ location
+                self.store_fr_scale += data[0:3] #append XYZ
+
                 # vert pos
                 chunk_sd = kpc.readChunkToList(inFile, "4B", self.hdr.numVerts)
                 np_sd = np.array(chunk_sd)
@@ -824,8 +826,7 @@ class Kingpin_Model_Reader:
                 self.fr_v_pos.append(verts)  # append all vertex pos for frame
                 self.fr_v_nrm.append(norms)  # vertexnormal index
                 self.store_fr_v_pos.append(verts_sd) #+= [v[j] for v in chunk_sd for j in range(3)] #rev order...
-                self.fr_names.append(asciiz(  # .split(b"\x00")
-                    data[6].decode("utf-8", errors="replace")))  # frame names
+                self.fr_names.append(kpc.string_from_bytes(data[6]))  # frame names
 
             kpc.printDone_fn(start_frme_time, prefix)  # Reading Frames Done
             # end frame loop
@@ -897,7 +898,7 @@ def load_kingpin_image(mdxPath, filePath, check_dupe, store_image):
 
 
 def asciiz(s):
-    """search hex null"""
+    """ search hex null """
     for i, c in enumerate(s):
         if ord(c) == 0:
             return s[:i]

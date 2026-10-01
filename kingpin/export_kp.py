@@ -7,7 +7,7 @@ import os
 import struct
 import numpy as np
 # import traceback
-from collections import defaultdict, deque
+from collections import deque, namedtuple
 # from mathutils import Vector as Vec
 from bpy.types import Operator, PropertyGroup
 from bpy.props import (
@@ -429,70 +429,55 @@ def setupInternalArrays_fn(export_mdls, cfg: kpc.export_cfg, numFrames):
 
 def write_frame_fn(mdl, cfg, file, frame, frameName="frame"):
     """ build frame data """
-    bbox_min = mdl.bbox_min[frame]
-    bbox_max = mdl.bbox_max[frame]
+    bbox_min = mdl.bbox_min[frame][0:3]
+    bbox_max = mdl.bbox_max[frame][0:3]
 
     # BL: some caching to speed it up:
     # -> sd_ gets the vertices between [0 and 255]
     #    which is our important quantization.
-    xMax = bbox_max[0] - bbox_min[0]  # bbox size
-    yMax = bbox_max[1] - bbox_min[1]  # bbox size
-    zMax = bbox_max[2] - bbox_min[2]  # bbox size
-    sdx = xMax / 255.0  # write default scale to file
-    sdy = yMax / 255.0  # write default scale to file
-    sdz = zMax / 255.0  # write default scale to file
-
-    isdx = float(65280.0 / xMax) if xMax != 0.0 else 0.0
-    isdy = float(65280.0 / yMax) if yMax != 0.0 else 0.0
-    isdz = float(65280.0 / zMax) if zMax != 0.0 else 0.0
+    maxXYZ = [(a-b) for a, b in zip(bbox_max, bbox_min)]  # bbox size
+    scaleXYZ = [a / 255.0 for a in maxXYZ]
+    isdXYZ = [float(65280.0 / a) if a != 0.0 else 0.0 for a in maxXYZ]
 
     # note about the scale: self.object.scale is already applied via matrix_world
     data = struct.pack(
         "<6f16s",
-        sdx, sdy, sdz,                          # write scale of the model
-        bbox_min[0], bbox_min[1], bbox_min[2],  # write offset (min bounding box)
-        kpc.string_to_bytes(frameName, 16))     # write frame name.
+        *scaleXYZ[0:3],  # write scale of the model
+        *bbox_min[0:3],  # write offset (min bounding box)
+        kpc.string_to_bytes(frameName, 16))  # write frame name.
     file.write(data)  # frame header
 
     ###########################
     # write vertex X,Y,Z,lightNormalID
-    ofsetVertID = 0  # multi object
+    # ofsetVertID = 0  # multi object
     # frames
-    v8 = [0] * 3
-    v16 = [0] * 3
+    v8 = [0, 0, 0]
+    v16 = [0, 0, 0]
+    meData = []
+    VecHD = namedtuple("VecHD", "x2 y2 z2 x1 y1 z1") #2byte, 1byte
     for mIdx, tmp_mesh in enumerate(mdl.frMeData[frame]):  # object/s
         # vertex data
+        vData = []
         for vIdx, vert in enumerate(tmp_mesh[kpc.IDX_XYZ_V]):
             # find the closest normal for every vertex
             bestNormalIndex = mdl.vNormData[frame][mIdx][vIdx]
             # write vertex pos and normal. (compressed position. 256 units)
-            v16[0] = int((vert[0] - bbox_min[0]) * isdx + 0.5)  # MH: compresion
-            v16[1] = int((vert[1] - bbox_min[1]) * isdy + 0.5)  # MH: compresion
-            v16[2] = int((vert[2] - bbox_min[2]) * isdz + 0.5)  # MH: compresion
-            v8[0] = (v16[0] + 128) >> 8  # MH: compresion
-            v8[1] = (v16[1] + 128) >> 8  # MH: compresion
-            v8[2] = (v16[2] + 128) >> 8  # MH: compresion
-            data = struct.pack("<4B", v8[0], v8[1], v8[2], bestNormalIndex)
+            v16[0:3] = [int((a - b) * c + 0.5) for a, b, c in zip(vert, bbox_min, isdXYZ)]
+            v8[0:3] = [(x + 128) >> 8 for x in v16[0:3]] # MH: compresion
+            data = struct.pack("<4B", *v8, bestNormalIndex)
             file.write(data)  # write vertex and normal
-        ofsetVertID += len(tmp_mesh[kpc.IDX_XYZ_V])  # TODO
+            vData.append(VecHD(*v16, *v8))
+        meData.append(vData)
 
-    # HD model. TODO: store above instead of doing it twice
-    if cfg.ui_opt_is_hd is True:  # "VERSION5":
-        for mIdx, tmp_mesh in enumerate(mdl.frMeData[frame]):
-            for vert in tmp_mesh[kpc.IDX_XYZ_V]:
-                v16[0] = int((vert[0] - bbox_min[0]) * isdx + 0.5)  # MH: compresion
-                v16[1] = int((vert[1] - bbox_min[1]) * isdy + 0.5)  # MH: compresion
-                v16[2] = int((vert[2] - bbox_min[2]) * isdz + 0.5)  # MH: compresion
-                v8[0] = (v16[0] + 128) >> 8  # MH: compresion
-                v8[1] = (v16[1] + 128) >> 8  # MH: compresion
-                v8[2] = (v16[2] + 128) >> 8  # MH: compresion
+    if cfg.ui_opt_is_hd is True:  # save an extra byte (HD)
+        for ob_verts in meData:
+            for vHD in ob_verts:
                 data = struct.pack(  # HD vertex. 256 subdivision
                     "<3b",
-                    v16[0] - (v8[0] << 8),  # MH: compresion
-                    v16[1] - (v8[1] << 8),  # MH: compresion
-                    v16[2] - (v8[2] << 8))  # MH: compresion
+                    vHD.x2 - (vHD.x1 << 8),  # MH: compresion
+                    vHD.y2 - (vHD.y1 << 8),  # MH: compresion
+                    vHD.z2 - (vHD.z1 << 8))  # MH: compresion
                 file.write(data)
-            ofsetVertID += len(tmp_mesh[kpc.IDX_XYZ_V])  # TODO not used
 # end write_frame_fn
 
 
@@ -769,7 +754,8 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                         cmd))     # S, T, vIdx...
 
             #  multi part object offset
-            ofsetVertID += len(tmp_mesh[kpc.IDX_XYZ_V])
+            # ofsetVertID += len(tmp_mesh[kpc.IDX_XYZ_V])
+            ofsetVertID += tmp_mesh[kpc.IDX_I_VERT]
             if cfg.ui_opt_use_hitbox:
                 mdxID += 1
 
@@ -812,6 +798,14 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                 if texname not in skins and len(skins) <= kpc.MD2_MAX_SKINS:
                     skins.append(texname)
 
+        def appendValidSkins(skins, image):
+            # set skin
+            if method == "SKIN_TEX_NAME":
+                appendSkins(skins, image.name)
+            elif method == "SKIN_TEX_PATH":
+                appendSkins(skins, stripLeadingPath(image.filepath))
+            # elif method == "SKIN_MAT_NAME":
+
         def updateWH(size, W, H):
             width = max(size[0], W)
             height = max(size[1], H)
@@ -843,12 +837,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                         if n and n.type == "TEX_IMAGE" and n.image:
                             image = n.image
                             width, height = updateWH(image.size, width, height)  # set image size
-                            # set skin
-                            if method == "SKIN_TEX_NAME":
-                                appendSkins(skins, image.name)
-                            elif method == "SKIN_TEX_PATH":
-                                appendSkins(skins, stripLeadingPath(image.filepath))
-                            # elif method == "SKIN_MAT_NAME":
+                            appendValidSkins(skins, image)
                 # B2.7 use "texture"
                 elif hasattr(mat, "texture_slots"):
                     # search texture slots for dimensions/name
@@ -857,12 +846,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                             image = mtex.texture.image
                             if mtex.use_map_color_diffuse:
                                 width, height = updateWH(image.size, width, height)  # set image size
-                                # set skin
-                                if method == "SKIN_TEX_NAME":
-                                    appendSkins(skins, image.name)
-                                elif method == "SKIN_TEX_PATH":
-                                    appendSkins(skins, stripLeadingPath(image.filepath))
-                                # elif method == "SKIN_MAT_NAME":
+                                appendValidSkins(skins, image)
                 # TODO no nodes? use uv name?
                 # use uv name/texture?
 
@@ -875,8 +859,8 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
             print("WARNING: found texture larger than kingpin max 480px")
 
         # set min/max (kp crashes with more then 480, but is not use by opengl render)
-        width = kpc.forceMinMaxRange(width, 16, 480)
-        height = kpc.forceMinMaxRange(height, 16, 480)
+        width = kpc.forceMinMaxRange(width, 16, 2048)
+        height = kpc.forceMinMaxRange(height, 16, 480) # kingpin checks heigt
 
         mdl.skinWidth = width
         mdl.skinHeight = height
@@ -976,8 +960,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                 hitboxTmp = []
                 hitboxMin = mdl.bbox_min[frame]
                 hitboxMax = mdl.bbox_max[frame]
-                hitboxTmp.append([hitboxMin[0], hitboxMin[1], hitboxMin[2],
-                                    hitboxMax[0], hitboxMax[1], hitboxMax[2]])
+                hitboxTmp.append([*hitboxMin[0:3], *hitboxMax[0:3]])
                 mdl.hitbox.append(hitboxTmp)
         elif cfg.ui_opt_use_hitbox:
             # each object has seperate hitbox
@@ -985,11 +968,10 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                 hitboxTmp = []
                 for tmp_mesh in mdl.frMeData[frame]:
                     verts = np.array(tmp_mesh[kpc.IDX_XYZ_V])
-                    hitboxMin =np.min(verts, axis=0)
+                    hitboxMin = np.min(verts, axis=0)
                     hitboxMax = np.max(verts, axis=0)
                     # add each object
-                    hitboxTmp.append([hitboxMin[0], hitboxMin[1], hitboxMin[2],
-                                      hitboxMax[0], hitboxMax[1], hitboxMax[2]])
+                    hitboxTmp.append([*hitboxMin[0:3], *hitboxMax[0:3]])
                 # add to frame
                 mdl.hitbox.append(hitboxTmp)
         else:
@@ -1003,8 +985,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                 hitboxMin = np.min(verts, axis=0)
                 hitboxMax = np.max(verts, axis=0)
                 #add combined
-                hitboxTmp.append([hitboxMin[0], hitboxMin[1], hitboxMin[2],
-                                  hitboxMax[0], hitboxMax[1], hitboxMax[2]])
+                hitboxTmp.append([*hitboxMin[0:3], *hitboxMax[0:3]])
                 # add to frame
                 mdl.hitbox.append(hitboxTmp)
 
@@ -1094,31 +1075,23 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
     if not cfg.ui_opt_animated:
         numFrames = 1
     else:
-        numFrames =  1 + cfg.ui_opt_fr_end - cfg.ui_opt_fr_start
+        numFrames = min(1 + cfg.ui_opt_fr_end - cfg.ui_opt_fr_start, kpc.MD2_MAX_FRAMES)
 
     setupInternalArrays_fn(export_mdls, cfg, numFrames)  # generate mesh/objects
     frameNames = buildFrameNames_fn(cfg, numFrames)  # setup frame names
-
-    # 1 if not self.ui_opt_animated else (1 + self.ui_opt_fr_end - self.ui_opt_fr_start)
-    if numFrames > kpc.MD2_MAX_FRAMES:
-        numFrames = kpc.MD2_MAX_FRAMES
-        # raise RuntimeError( # TODO dont error
-        #     "There are too many frames (%i), at most %i are supported in md2/mdx"
-        #     % (numFrames, kpc.MD2_MAX_FRAMES))
 
     MD2_VN = np.array(kpc.MD2_VN)
 
     for mdl in export_mdls:
         if not mdl.valid:
             continue
-
         print("Calculating... %s%s" % (mdl.save_name, cfg.f_ext))
 
         mdl.numFrames = numFrames
         mdl.frameNames = frameNames
         getSkins_fn(mdl, cfg)  # get texture names
-        calcSharedBBox_fn(mdl, numFrames)       # get min/max dimensions
-        calculateVNornIndex_fn(mdl, numFrames, MD2_VN)  # TODO speed boost
+        calcSharedBBox_fn(mdl, numFrames)  # get min/max dimensions
+        calculateVNornIndex_fn(mdl, numFrames, MD2_VN)
         get_numVerts(mdl, cfg)
         get_numTris(mdl, cfg)
         buildGLcommands_fn(mdl, cfg)
@@ -1159,39 +1132,47 @@ def write_fn(filePath, mdl, cfg):
         # ###############################
         # ### write software uv byte ###
         if not cfg.isMdx:  # MD2
+            def clamp16(v):
+                return max(-32768, min(32767, v))
+
             for tmp_mesh in mdl.frMeData[0]:
                 # tmp_mesh[kpc.IDX_I_UV]
                 for uv in tmp_mesh[kpc.IDX_XY_UV]:
                     data = struct.pack(
                         "<2h",
                         int(uv[0] * mdl.skinWidth),
-                        int((1 - uv[1]) * mdl.skinHeight))  # TODO check invalid 0-1 uv space
+                        int(1-uv[1] * mdl.skinHeight))  # TODO check invalid 0-1 uv space
                     file.write(data)  # uv
 
         # #################################
         # ### write triangle index data ###
-        ofsetVertID = 0
-        for tmp_mesh in mdl.frMeData[0]:
-            face = tmp_mesh[kpc.IDX_IDC_V]
-            uv = tmp_mesh[kpc.IDX_IDC_UV]
-            for idx in range(tmp_mesh[kpc.IDX_I_FACE]):
+        ofset_face = 0
+        ofset_uv = 0
+        for mesh in mdl.frMeData[0]:
+            face = mesh[kpc.IDX_IDC_V]
+            uv = mesh[kpc.IDX_IDC_UV]
+            count_uv = mesh[kpc.IDX_I_UV]
+            count_vert = mesh[kpc.IDX_I_VERT]
+            count_face = mesh[kpc.IDX_I_FACE]
+            for idx in range(count_face):
                 # 0,2,1 for good cw/ccw
-                data = struct.pack(
-                    "<3H",  # ### write vert indices ###
-                    face[idx * 3 + 0] + ofsetVertID,
-                    face[idx * 3 + 2] + ofsetVertID,
-                    face[idx * 3 + 1] + ofsetVertID)
+                f_idx = idx * 3
+                data = struct.pack( # signed short
+                    "<3h",  # ### write vert indices ###
+                    face[f_idx + 0] + ofset_face,
+                    face[f_idx + 2] + ofset_face,
+                    face[f_idx + 1] + ofset_face)
                 file.write(data)  # vert uv index data
 
-                data = struct.pack(
-                    "<3H",  # ### write tex cord indices ###
-                    uv[idx * 3 + 0] + ofsetVertID,  # (uv idc)
-                    uv[idx * 3 + 2] + ofsetVertID,  # (uv idc)
-                    uv[idx * 3 + 1] + ofsetVertID)  # (uv idc)
+                data = struct.pack( # signed short
+                    "<3h",  # ### write tex cord indices ###
+                    uv[f_idx + 0] + ofset_uv,  # (uv idc)
+                    uv[f_idx + 2] + ofset_uv,  # (uv idc)
+                    uv[f_idx + 1] + ofset_uv)  # (uv idc)
                 file.write(data)  # uv index
 
-            ofsetVertID += len(tmp_mesh[kpc.IDX_IDC_V])
-            # self.vertCounter.append(len(tmp_mesh[kpc.IDX_XYZ_V]))
+            ofset_face += count_vert
+            ofset_uv += count_uv
 
         # ####################
         # ### write frame/s ###
@@ -1205,22 +1186,16 @@ def write_fn(filePath, mdl, cfg):
         # ### write GL Commands ###
         for glCmd in mdl.glCmdList:
             if cfg.isMdx:
-                data = struct.pack(
-                    "<iL",
-                    glCmd[0],  # TrisTypeNum
-                    glCmd[1])  # SubObjectID
+                # TrisTypeNum, SubObjectID
+                data = struct.pack("<iL", *glCmd[:2])
             else:
-                data = struct.pack(
-                    "<i",
-                    glCmd[0])  # TrisTypeNum
+                 # TrisTypeNum
+                data = struct.pack("<i", *glCmd[:1])
             file.write(data)
 
             for cmd in glCmd[2]:
-                data = struct.pack(
-                    "<ffI",
-                    cmd[0],  # texture X
-                    cmd[1],  # texture Y
-                    cmd[2])  # vertex index
+                #U, V, v-index
+                data = struct.pack("<ffI", *cmd[:3])
                 file.write(data)
         # NULL GLCommand
         data = struct.pack("<I", 0)
@@ -1232,10 +1207,7 @@ def write_fn(filePath, mdl, cfg):
             # ofsVertexInfo #mdx
             for mdxObj, tmp_mesh in enumerate(mdl.frMeData[0]):
                 for _ in range(tmp_mesh[kpc.IDX_I_VERT]):
-                    if cfg.ui_opt_use_hitbox:
-                        bits = 1 << mdxObj
-                    else:
-                        bits = 1
+                    bits = 1 << mdxObj if cfg.ui_opt_use_hitbox else 1
                     data = struct.pack("<i", bits)  # fill as object #1 TODO
                     file.write(data)  # vert index
 
@@ -1244,14 +1216,7 @@ def write_fn(filePath, mdl, cfg):
             # ofsBBoxFrames #mdx
             for mdxObj in range(mdl.hdr.numSubObjects):
                 for i in range(mdl.hdr.numFrames):
-                    data = struct.pack(
-                        "<6f",
-                        mdl.hitbox[i][mdxObj][0],
-                        mdl.hitbox[i][mdxObj][1],
-                        mdl.hitbox[i][mdxObj][2],
-                        mdl.hitbox[i][mdxObj][3],
-                        mdl.hitbox[i][mdxObj][4],
-                        mdl.hitbox[i][mdxObj][5])
+                    data = struct.pack("<6f", *mdl.hitbox[i][mdxObj][:6])
                     file.write(data)
     #finish open with
 

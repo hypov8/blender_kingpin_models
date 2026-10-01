@@ -190,7 +190,7 @@ bl_info = {
     "name": "Kingpin Models (md2, mdx)",
     "description": "Import/export Kingpin compatible model (md2/mdx)",
     "author": "Update by HypoV8. See _init_.py for contributors",
-    "version": (1, 2, 7, 0),
+    "version": (1, 2, 7, 1),
     "blender": (2, 80, 0),
     "location": "File > Import/Export > Kingpin Models",
     "warning": "",  # used for warning icon and text in addons panel
@@ -219,6 +219,7 @@ from . common_kp import (
     KINGPIN_FileSelect_md2_Params,
     KINGPIN_FileSelect_q3cfg_Params,
     KINGPIN_FileSelect_folder_Params,
+    KINGPIN_FileSelect_file_Params_tga,
     check_version,
     make_annotations,
     get_menu_import,
@@ -327,6 +328,7 @@ def register():
     make_annotations(KINGPIN_FileSelect_md2_Params)
     make_annotations(KINGPIN_FileSelect_q3cfg_Params)
     make_annotations(KINGPIN_FileSelect_folder_Params)
+    make_annotations(KINGPIN_FileSelect_file_Params_tga)
 
     for cls in classes_props:
         make_annotations(cls)
