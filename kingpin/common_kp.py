@@ -1284,6 +1284,83 @@ def getChunk(data, data_str: str, start_idx: int):
     return struct.unpack(data_str, data[start_idx:end_idx]), end_idx
 
 
+def getDepsgraph():
+    if check_version(2, 80, 0) >= 0:
+        return bpy.context.evaluated_depsgraph_get()
+    # B2.79
+    return None
+
+
+def getEvaluatedMesh(obj, depsgraph, apply_modifyer=True):
+    """
+    get evaluated mesh
+    return none of failed
+    """
+    me = None
+    eval_obj = None
+    if check_version(2, 80, 0) >= 0:  # B2.8
+        eval_obj = obj.evaluated_get(depsgraph)
+        try:
+            if apply_modifyer:
+                me = eval_obj.to_mesh()
+            else:
+                me = eval_obj.original.to_mesh()
+                eval_obj = eval_obj.original #use correct mesh
+        except RuntimeError:
+            eval_obj.to_mesh_clear()
+            return None, None
+    else:  # B2.79
+        try:
+            me = obj.to_mesh(
+                bpy.context.scene,
+                apply_modifyer,
+                calc_tessface=False,
+                settings="PREVIEW")  # "RENDER" "PREVIEW")
+        except RuntimeError:
+            # bpy.data.meshes.remove(me)
+            return None, None  # return None
+
+    return me, eval_obj
+
+
+# kpc.getMehWorldCords_fn()
+def getMeshWorldCords_fn(obj, depsgraph, apply_modifyer=True):
+    """ Get real world position of each vertex (post-deform) """
+    if check_version(2, 80, 0) >= 0:
+        me, eval_obj = getEvaluatedMesh(obj, depsgraph, apply_modifyer)
+        if me is None:
+            return []
+        try:
+            mw = eval_obj.matrix_world
+            return [mw @ v.co for v in me.vertices]
+        finally:
+            eval_obj.to_mesh_clear() #cleanup
+
+    # B2.79
+    me, _ = getEvaluatedMesh(obj, depsgraph, apply_modifyer)
+    try:
+        mw = obj.matrix_world
+        return [mw * v.co for v in me.vertices]
+    finally:
+        bpy.data.meshes.remove(me) #cleanup
+
+
+#kpc.setMeshLocalCords_fn
+def setMeshLocalCords_fn(obj, world_positions):
+    """ position vert relative to existing transforms """
+    if len(world_positions) != len(obj.data.vertices):
+        raise ValueError(
+            "Source evaluated vertex count does not match destination mesh"
+        )
+
+    inv = obj.matrix_world.inverted()
+    if check_version(2, 80, 0) >= 0:
+        return [inv @ p for p in world_positions]
+
+    # B2.79
+    return [inv * p for p in world_positions]
+
+
 # get mesh data at current frame
 def getMeshArrays_fn(obj_group=None,
                      getUV=False,
@@ -1317,28 +1394,10 @@ def getMeshArrays_fn(obj_group=None,
     # convert poly to tri
     def triangulateMesh_fn(obj, depsgraph,
                            apply_modifyer, global_cords):
-        me = None
-        depMesh = None
-        if check_version(2, 80, 0) >= 0:  # B2.8
-            depMesh = obj.evaluated_get(depsgraph)
-            try:
-                if apply_modifyer:
-                    me = depMesh.to_mesh()
-                else:
-                    me = depMesh.original.to_mesh()
-            except RuntimeError:
-                depMesh.to_mesh_clear()
-                return None
-        else:  # B2.79
-            try:
-                me = obj.to_mesh(
-                    bpy.context.scene,
-                    apply_modifyer,
-                    calc_tessface=False,
-                    settings="PREVIEW")  # "RENDER" "PREVIEW")
-            except RuntimeError:
-                return None  # return None
-            # mesh.calc_tessface()
+        """ triangulate mesh """
+        me, depMesh = getEvaluatedMesh(obj, depsgraph, apply_modifyer)
+        if not me:
+            return None, None
 
         bm = bmesh.new()
         bm.from_mesh(me)
@@ -1494,7 +1553,7 @@ def getMeshArrays_fn(obj_group=None,
             depMesh.to_mesh_clear()
     else:  # B2.79
         for obj in obj_group:
-            me, depMesh = triangulateMesh_fn(
+            me, _ = triangulateMesh_fn(
                 obj, None, apply_modifyer, global_cords)
             if me is None:
                 continue

@@ -219,13 +219,11 @@ def delete_all_anims(self, context):
             continue
         set_select_state(obj, False)  # select object
 
-        vArray = []
         # get vertex pos at current frame
-        mesh = getMeshArrays_fn([obj], global_cords=False)
-        for v in mesh[0][IDX_XYZ_V]:
-            vArray.append(v)
+        depsgraph = kpc.getDepsgraph()
+        world_v_pos = kpc.getMeshWorldCords_fn(obj, depsgraph, False)
 
-        # remove parent
+        # remove parent? not needed?
         if obj.parent:
             # mat_copy = obj.matrix_world.copy()
             obj.parent = None
@@ -245,8 +243,9 @@ def delete_all_anims(self, context):
                 obj.shape_key_remove(sk)
 
         # apply current position to vertex
+        local_v_pos = kpc.setMeshLocalCords_fn(obj, world_v_pos)
         for i, v in enumerate(obj.data.vertices):
-            v.co = Vector(vArray[i])
+            v.co = Vector(local_v_pos[i])
         obj.data.update()
 
     for obj in sel_objs:

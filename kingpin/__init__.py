@@ -115,7 +115,9 @@ v1.2.7
 - clean up and increase speed of Quake3 to Kingpin tool
 - added blender 4.4+ fix from SaintBaron repo. fcurves changes
 
-
+v1.2.7.2
+- new method for retarget, fixes vert count bug, only gets vert pos
+- fix clear anims that have modifyers. vert count issue, as above
 
 
 notes
@@ -190,7 +192,7 @@ bl_info = {
     "name": "Kingpin Models (md2, mdx)",
     "description": "Import/export Kingpin compatible model (md2/mdx)",
     "author": "Update by HypoV8. See _init_.py for contributors",
-    "version": (1, 2, 7, 1),
+    "version": (1, 2, 7, 2),
     "blender": (2, 80, 0),
     "location": "File > Import/Export > Kingpin Models",
     "warning": "",  # used for warning icon and text in addons panel

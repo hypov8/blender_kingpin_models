@@ -394,20 +394,13 @@ class KINGPIN_UI_BUTTON_DRIVER(Operator):
             except print("ERROR: insert_key"):
                 pass
 
-        def get_KdTree_for_vArray(meshArray):
+        def get_KdTree_for_vArray(vert_array):
             """https://blender.stackexchange.com/a/274223"""
-            size = 0
-            for me in meshArray:
-                size += len(me[kpc.IDX_XYZ_V])  # count all verts
-            kd = kdtree.KDTree(size)
-            iIdx = 0
-            for me in meshArray:
-                for v in me[kpc.IDX_XYZ_V]:
-                    kd.insert(v, iIdx)  # kd.insert(v.co, i)
-                    iIdx += 1
+            kd = kdtree.KDTree(len(vert_array))
+            for iIdx, v in enumerate(vert_array):
+                kd.insert(v, iIdx)  # kd.insert(v.co, i)
             kd.balance()
             return kd
-
         # END get_KdTree_for_vArray()
 
         src_Objs = []
@@ -444,62 +437,74 @@ class KINGPIN_UI_BUTTON_DRIVER(Operator):
             self.report({"WARNING"}, "Select a valid mesh")
             return {"FINISHED"}
 
-        # source mesh T-Pose
-        objData_src= kpc.getMeshArrays_fn(src_Objs)
-        kdTree = get_KdTree_for_vArray(objData_src)
+        depsgraph = kpc.getDepsgraph()
+
+        # source vert positions. for bind matching
+        ob_bind_pos = []
+        for obj in src_Objs:
+            ob_bind_pos.extend(kpc.getMeshWorldCords_fn(obj, depsgraph))
+        kdTree_src = get_KdTree_for_vArray(ob_bind_pos) #flat positions
+        # source mesh T-Pose. store flat
+        # objData_src= kpc.getMeshArrays_fn(ob_bind_pos)
         # kdTree = get_KdTree_for_vArray(objData_srcvs[0][kpc.IDX_XYZ_V])
 
         # dest mesh T-Pose
-        objData_dst = kpc.getMeshArrays_fn(sel_objs)
-
-        # reset matrix. vert pos in world space
-        matrix_array = []
+        # get world vertex pos, so we can bind to our target
+        ob_bind_pos = []
         for obj in sel_objs:
-            matrix_array.append(obj.matrix_world.copy())  # store transform
-            # obj.data.transform(Matrix.Identity(4)) # set default transform
-            # obj.matrix_basis = Matrix.Identity(4) # set default transform
+            ob_bind_pos.append(kpc.getMeshWorldCords_fn(obj, depsgraph, False))
+
 
         ###############################
         # get vertex bind array indices
-        bind_array = []  # * len(objData_dst)
-        for obj in objData_dst:
-            # v_array = []
-            verts_dst = obj[kpc.IDX_XYZ_V]  # get vert array
-            for vert in verts_dst:
-                # bestIdx = 0
-                co_find = (vert[0], vert[1], vert[2])
-                _, bestIdx, _ = kdTree.find(co_find) #co, bestIdx, dist
-                # v_array.append(bestIdx)  # TODO add src mesh index..
-                bind_array.append(bestIdx)
-            # bind_array.append(v_array)
+        def findBestVertMatch(objData_dst, kdTree_src):
+            ret = []  # * len(objData_dst)
+            for verts_dst in objData_dst:
+                v_array = []
+                for vert in verts_dst:
+                    # bestIdx = 0
+                    co_find = (vert[0], vert[1], vert[2])
+                    _, bestIdx, _ = kdTree_src.find(co_find) #co, bestIdx, dist
+                    v_array.append(bestIdx)  # TODO add src mesh index..
+                ret.append(v_array)
+            return ret
+
+        dst_ob_bind_idc = findBestVertMatch(ob_bind_pos, kdTree_src)
 
         ################
         # loop through each frame, get animation data from source
         for fr in range(end_fr + 1 - start_fr):
-            vPos_src = []
+            # set current frame
             fr_cur = fr + start_fr
-
+            bpy.context.scene.frame_set(fr_cur)
             # print progress
             if total_frames < 50 or (fr % 20) == 0:
                 kpc.printProgress_fn(fr_cur, total_frames, prefix)
 
-            bpy.context.scene.frame_set(fr_cur)
-
-            ret = kpc.getMeshArrays_fn(src_Objs)
-            for o in ret:  # todo comp
-                for v in o[kpc.IDX_XYZ_V]:
-                    vPos_src.append(v)
+            # get current src positions
+            depsgraph = kpc.getDepsgraph()
+            src_ob_v_array = []
+            for obj in src_Objs: #source
+                v = kpc.getMeshWorldCords_fn(obj, depsgraph)
+                src_ob_v_array.extend(v) # combine/flat cords
 
             # animate the destination mesh.
-            vOffs = 0
-            for obj in sel_objs:
-                for vIdx, vert in enumerate(obj.data.vertices):
+            for oIdx, obj in enumerate(sel_objs): #destination
+                num_vert = len(obj.data.vertices)
+                bind_idc = dst_ob_bind_idc[oIdx] #best match index
+                new_dest = []
+                # for i in range(num_vert):
+                #     new_dest.append(src_ob_v_array[bind_idc[i]])
+
+                new_dest = [src_ob_v_array[bind_idc[i]] for i in range(num_vert)]
+                new_dest = kpc.setMeshLocalCords_fn(obj, new_dest)
+
+                # set ketframe
+                for vIdx, vert in enumerate(obj.data.vertices): #not in sync
                     # add local transforms
-                    vert.co = Vector(vPos_src[bind_array[vOffs + vIdx]])
-                    # vert.co = v_pos * obj.matrix_world * obj.matrix_world.inverted()
+                    vert.co = new_dest[vIdx]
                     # add vertex keyframe
                     insert_key(vert, "co", group="Vertex %s" % vIdx)
-                vOffs += len(obj.data.vertices)
 
         for obj in sel_objs:
             # obj.matrix_basis = matrix_array[i]
