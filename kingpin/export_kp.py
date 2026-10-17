@@ -57,18 +57,20 @@ class KINGPIN_Export_props(PropertyGroup):
         default=True
     )
     ui_opt_is_hd = BoolProperty(
-        name="HD Version",
+        name="HD Vertex",
         description=(
-            "Export HD version. 2byte vertex pos. Backward compatable with engine and some viewers.\n" +
+            "2-byte vertex position. Backward compatable with engine and some viewers.\n" +
+            "Limit its use to large/animated models\n" +
             "Note: requires MH patch to view in kingpin. without the wobble :)"
         ),
-        default=True
+        default=False
     )
     ui_opt_cust_vn = BoolProperty(
-        name="Custom Vertex Normals",
+        name="Corner Normals",
         description=(
-            "Use custom vertex normals instead of average normal.\n" +
-            "Note: Vertex are not split on hard edges"
+            "Primary use: fixing player seams with 'Data Transfer' modifier.\n" +
+            "Not needed for: normal smooth/flat shading, or Edge Split modifier.\n" +
+            "Note: this may generate bad normals on hard edges with 1 vertex"
         ),
         default=False
     )
@@ -77,7 +79,7 @@ class KINGPIN_Export_props(PropertyGroup):
         description=(
             "Export all \'head\' \'body\' \'legs\' named objects. using a shared quantizer.\n" +
             "Usage: Show all head, body, legs objects. Click export. 3 models will be exported.\n" +
-            "Note: only use on medels with a shared seam, as it waste precision"
+            "Note: only use on models with a shared seam, as it waste precision"
         ),
         default=False,
     )
@@ -91,23 +93,25 @@ class KINGPIN_Export_props(PropertyGroup):
         default=False
     )
     ui_opt_fr_start = IntProperty(
-        name="Start Frame",
+        name="Start",
         description="Animated model start frame",
         min=0, max=kpc.MD2_MAX_FRAMES - 1,
         default=0
     )
     ui_opt_fr_end = IntProperty(
-        name="End Frame",
+        name="End",
         description="Animated model end frame",
         min=0, max=kpc.MD2_MAX_FRAMES - 1,
         default=40
     )
     ui_opt_use_hitbox = BoolProperty(
-        name="Player HitBox",
+        # name="Player HitBox",
+        name="MDX objects/HitBox",
         description=(
-            "Export a seperate mdx hitbox for each object. eg hand, arm, torso.\n" +
-            "HitBox are used in multiplayer when \"dm_locational_damage 1\" is set on the server\n" +
-            "Note: disabled will create 1 large hitbox"
+            "Seperate each mesh into an mdx object(hitbox). eg hand, arm, torso.\n" +
+            "Each objects can use a differnt textures, " +
+            "location damage in multiplayer, and for detatchable body parts.\n" +
+            "Note: disabled will create 1 large object/hitbox"
         ),
         default=False
     )
@@ -122,7 +126,7 @@ class KINGPIN_Export_props(PropertyGroup):
     ui_opt_model_ext = EnumProperty(
         name="Format",
         description="Choose which format to export",
-        items=((".md2", "MD2", ""), (".mdx", "MDX", "")),
+        items=((".md2", "MD2", "Quake2 models"), (".mdx", "MDX", "Kingpin models")),
         default=".mdx"
     )
     ui_opt_export_name = StringProperty(
@@ -140,6 +144,50 @@ class KINGPIN_Export_props(PropertyGroup):
         maxlen=1024,
         subtype="NONE"
     )
+    ui_opt_export_mdx_obj = EnumProperty(
+        # name="",
+        name="MDX Parts",
+        description=(
+            "MDX hitbox/parts support.\n" +
+            "Used for hitboxs, multiple skins and shootable limbs"
+        ),
+        items=(
+            ("MDX_OBJ_NONE", "1.SINGLE PART",
+             "Export 1 large mdx hitbox/parts"
+            ),
+            ("MDX_OBJ_OBJECTS", "2.FROM OBJECTS",
+             "Use each object as a seperate hitbox/parts"
+            ),
+            ("MDX_OBJ_SKINS", "3.FROM OBJECTS+SKINS",
+             "Create mdx hitbox/parts from each material and objects selected"
+            ),
+        ),
+        default="MDX_OBJ_NONE"
+    )
+    ui_opt_export_mode = EnumProperty(
+        name="Mode",
+        description="Export model as a single file, player model, all visable objects etc.\nNote: file names will be trimmed at first dot (.)",
+        items=(
+            ("EXP_MERGED", "1.SELECTED",
+             "Export all selected objects as one md2/mdx"
+            ),
+            ("MDX_PLAYER_ONLY", "2.PLAYER MODEL",
+             "Export any visable head/body/legs. Use each object prefix to find its destination.\n" +
+             "Note: export names become head/body/legs"
+            ),
+            ("EXP_PLAYER_WEPS", "3.PLAYER+ADDONS",
+             "Export all visable model. Grouping head/body/legs and all other models(weps, addons..)"
+            ),
+            ("EXP_ADDON_ONLY", "4.ADDONS ONLY",
+             "Export all visable models, that are not prefixed with head/body/legs"
+            ),
+            ("EXP_ALL_ITEMS", "5.ALL OBJECTS",
+             "Export all visable models in scene"
+            ),
+        ),
+        default="EXP_MERGED"
+    )
+
 
 
 class KINGPIN_Export_Button(Operator, kpc.KINGPIN_FileSelect_md2_Params):
@@ -219,42 +267,28 @@ class KINGPIN_Export_Button_Folder(Operator, kpc.KINGPIN_FileSelect_folder_Param
         return {"RUNNING_MODAL"}
 
 
-def draw_export(self, context):
+def draw_export(self, context, is_tool_panel):
     ui_export_ = context.window_manager.kp_export_
     layout = self.layout
 
     # skin chooser box
-    layout.prop(ui_export_, "ui_opt_tex_name")  # testure source (dropdown)
-
-    # misc options box
-    box = layout.box()
-    miscBox = box.column_flow(columns=1, align=True)
-    # miscBox.prop(ui_export_, "ui_opt_apply_modify")  # apply modifiers
-    # if ui_export_.ui_opt_apply_modify:
-    miscBox.prop(ui_export_, "ui_opt_cust_vn")  # custom vertex normals
-    miscBox.prop(ui_export_, "ui_opt_is_hd")    # HD version
+    col = layout.column_flow(columns=1, align=True)
+    col.prop(ui_export_, "ui_opt_tex_name")  # testure source (dropdown)
+    col.prop(ui_export_, "ui_opt_export_mode")
+    col.prop(ui_export_, "ui_opt_export_mdx_obj")
 
     # animation box
     box = layout.box()
-    animBox = box.column_flow(columns=1, align=True)
-    animBox.prop(ui_export_, "ui_opt_animated")  # export animation
-    sub = animBox.column_flow(columns=1, align=True)
+    col = box.column_flow(columns=1, align=True)
+    col.prop(ui_export_, "ui_opt_animated")  # export animation
+    sub = col.row(align=True)
     sub.enabled = ui_export_.ui_opt_animated
     sub.prop(ui_export_, "ui_opt_fr_start")      # frame start number
     sub.prop(ui_export_, "ui_opt_fr_end")        # frame end number
-    # player
-    sub.prop(ui_export_, "ui_opt_is_player")     # playermodel
-    # weapon
-    wep = sub.row()
-    wep.prop(ui_export_, "ui_opt_exp_weps")
-    # player hitbox
-    hitbox = sub.row()
-    hitbox.prop(ui_export_, "ui_opt_use_hitbox")  # merge hitbox
-    # disable. if not player
-    if not ui_export_.ui_opt_is_player: # or not ui_export_.ui_opt_animated:
-        wep.enabled = False
-        hitbox.enabled = False
-
+    # advanced opt
+    col = box.column_flow(columns=1, align=True)
+    col.prop(ui_export_, "ui_opt_cust_vn")
+    col.prop(ui_export_, "ui_opt_is_hd")    # HD version
 
 
 def execute_export(self, context):
@@ -276,11 +310,6 @@ def execute_export(self, context):
     objects_vis = kpc.get_mesh_objects(context.visible_objects)
     # specific player mesh
     objects_player = [o for o in objects_vis if o.name[:4].lower() in ["head", "body", "legs"]]
-
-    # valid mesh?
-    ######### disabled...
-    # if not kpc.is_selected_mesh(self, self.objects_sel):
-    #     return {"FINISHED"}
 
     # deselect any objects
     for obj in sel_objs:
@@ -304,9 +333,6 @@ def execute_export(self, context):
         else:
             fext_ = ".md2"
             isMdx = False
-
-        # self.report({"WARNING"}, "Incorrect file extension. Not md2 or mdx")
-        # return {"FINISHED"}
 
     ret = Export_MD2_fn(self,
         objects_sel ,objects_vis, objects_player,
@@ -343,7 +369,7 @@ class KINGPIN_Export_Dialog(Operator, ExportHelper, kpc.KINGPIN_FileSelect_md2_P
         return {"FINISHED"}
 
     def draw(self, context):
-        draw_export(self, context)
+        draw_export(self, context, False)
 
     def invoke(self, context, event):
         """ check selected objets.
@@ -401,6 +427,16 @@ def setupInternalArrays_fn(export_mdls, cfg: kpc.export_cfg, numFrames):
             scene.frame_set(frame_idx)
         # --------------------------------------------
 
+        # get bounds for head+body+legs
+        if cfg.ui_opt_is_player:  # isPlayer
+            mesh_data = None # shared bbox
+            for mdl in export_mdls:
+                if len(mdl.mdl_objs_player) == 0:
+                    continue
+                if mesh_data is None:
+                    mesh_data = kpc.getMeshArrays_fn(mdl.mdl_objs_player)
+                mdl.frMeData_BBox.append(mesh_data)
+
         for mdl in export_mdls:
             if not mdl.valid:
                 continue
@@ -413,14 +449,7 @@ def setupInternalArrays_fn(export_mdls, cfg: kpc.export_cfg, numFrames):
                 getUV=bool(frame == 0),  # ignore uv for animated frames
                 apply_modifyer=apply_modifyer,
                 custom_vn=cust_vn)
-
             mdl.frMeData.append(mesh_data)
-
-            # TODO this will be run multiple times, check inuse...
-            # if mdl.mdl_objs in mdl.mdl_objs_player
-            if mdl.isPlayer:
-                # get all plyer objects. used for 'bbox'
-                mdl.frMeData_BBox.append(kpc.getMeshArrays_fn(mdl.mdl_objs_player))
 
     kpc.printDone_fn(start_time, prefix)  # Done.
     print("===============")
@@ -458,7 +487,7 @@ def write_frame_fn(mdl, cfg, file, frame, frameName="frame"):
     for mIdx, tmp_mesh in enumerate(mdl.frMeData[frame]):  # object/s
         # vertex data
         vData = []
-        for vIdx, vert in enumerate(tmp_mesh[kpc.IDX_XYZ_V]):
+        for vIdx, vert in enumerate(tmp_mesh.md_xyz_vert):
             # find the closest normal for every vertex
             bestNormalIndex = mdl.vNormData[frame][mIdx][vIdx]
             # write vertex pos and normal. (compressed position. 256 units)
@@ -490,7 +519,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
         prefix = "Calculate GLCommands"
         kpc.printProgress_fn(0, 1, prefix)  # print progress
 
-        def find_uv_islands(face_data, uv_data, num_faces):
+        def find_uv_islands(face_data, uv_data, num_faces, face_mats):
             """
             Groups all triangles into isolated UV islands.
             """
@@ -498,11 +527,11 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
             vert_to_tris = {}
             for tri_idx in range(num_faces):
                 tbase = tri_idx * 3
+                m = face_mats[tri_idx]
                 for k in range(3):
                     v = face_data[tbase + k]
                     u = uv_data[tbase + k]
-
-                    key = (v, u)
+                    key = (v, u, m)
                     if key not in vert_to_tris:
                         vert_to_tris[key] = []
                     vert_to_tris[key].append(tri_idx)
@@ -525,9 +554,10 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                     for k in range(3):
                         v = face_data[tbase + k]
                         u = uv_data[tbase + k]
+                        m = face_mats[curr_tri]
 
                         # Grab all other triangles that share this exact corner point
-                        shared_tris = vert_to_tris.get((v, u), [])
+                        shared_tris = vert_to_tris.get((v, u, m), [])
 
                         for neighbor in shared_tris:
                             if neighbor in unvisited:
@@ -694,17 +724,20 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
             return edge_to_tri
         #end build_neighbour
 
-        mdxID = 0  # mdx hitbox index number
+        # mdx hitbox index number. adds material ID
+        mdxID = 0  # TODO should this be bit index?
+
         ofsetVertID = 0   # multi object offset
         numCommands = 1  # add 1 for final NULL at end
         # loop through selected mesh/s
         for tmp_mesh in mdl.frMeData[0]:
-            numFaces = tmp_mesh[kpc.IDX_I_FACE]
-            face_data = tmp_mesh[kpc.IDX_IDC_V]
-            uv_data = tmp_mesh[kpc.IDX_IDC_UV]
+            numFaces = tmp_mesh.md_face_count
+            face_data = tmp_mesh.md_idc_vert
+            uv_data = tmp_mesh.md_idc_uv
+            face_mats = tmp_mesh.md_face_mat
 
             # pre-sort uv into groups
-            uv_islands = find_uv_islands(face_data, uv_data, numFaces)
+            uv_islands = find_uv_islands(face_data, uv_data, numFaces, face_mats)
 
             usedFace = [0] * numFaces  # has face been used. array
             # break up mesh for quicker processing.
@@ -740,24 +773,24 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                         numCommands += 1  # sub-object number
 
                     cmd = []
-                    uv_layer = tmp_mesh[kpc.IDX_XY_UV]  # uv_cords
+                    uv_layer = tmp_mesh.md_xy_uv  # uv_cords
                     for i in range(bestLength + 2):
                         cmd.append((
                             0.0 + uv_layer[bestUV[i]][0],  # X uv cords
                             1.0 - uv_layer[bestUV[i]][1],  # Y uv cords
                             bestVerts[i] + ofsetVertID))   # vertex number
                         numCommands += 3
-
+                    o_id = mdxID + face_mats[bestTris[0]] # material id
                     mdl.glCmdList.append((
                         numType,  # type/count (neg=fan pos=strip)
-                        mdxID,    # object number
+                        o_id,    # object number
                         cmd))     # S, T, vIdx...
 
             #  multi part object offset
-            # ofsetVertID += len(tmp_mesh[kpc.IDX_XYZ_V])
-            ofsetVertID += tmp_mesh[kpc.IDX_I_VERT]
-            if cfg.ui_opt_use_hitbox:
-                mdxID += 1
+            # ofsetVertID += len(tmp_mesh.md_xyz_vert)
+            ofsetVertID += tmp_mesh.md_vert_count
+            # if cfg.ui_opt_use_hitbox:
+            mdxID += tmp_mesh.md_mat_count
 
         kpc.printDone_fn(start_time, prefix)  # Done.
         mdl.numGLCmds = numCommands
@@ -765,16 +798,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
 
     # TODO
     def getSkins_fn(mdl: kpc.mdl_export, cfg: kpc.export_cfg):
-        """TODO change this
-        SKIN_MAT_NAME = get materal names, then check for valid images for size
-        SKIN_TEX_NAME = get texture names, then check for valid image for size
-        SKIN_TEX_PATH = use texture image path and size.
-        TODO: UV image?
-        """
-        # def check_skip_material(mat):
-        #     """Simple helper to check whether we actually support exporting that material or not"""
-        #     return mat.type not in {"SURFACE"} or mat.use_nodes
-
+        """ _ """
         def stripLeadingPath(path):
             tmpPath = bpy.path.abspath(path)  # , library=n.image.library)
             tmpPath = os.path.normpath(tmpPath)
@@ -798,13 +822,18 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                 if texname not in skins and len(skins) <= kpc.MD2_MAX_SKINS:
                     skins.append(texname)
 
+        def appendValidMaterial(skins, image):
+            # set skin
+            if method == "SKIN_MAT_NAME":
+                appendSkins(skins, image)
+
+
         def appendValidSkins(skins, image):
             # set skin
             if method == "SKIN_TEX_NAME":
                 appendSkins(skins, image.name)
             elif method == "SKIN_TEX_PATH":
                 appendSkins(skins, stripLeadingPath(image.filepath))
-            # elif method == "SKIN_MAT_NAME":
 
         def updateWH(size, W, H):
             width = max(size[0], W)
@@ -819,36 +848,28 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
         obj_sel = mdl.mdl_objs
         method = cfg.ui_opt_tex_name
 
-        for obj in obj_sel:
-            materials = obj.data.materials[:]
-            # material_names = [m.name if m else None for m in materials]
-            for mat in materials:
-                if not mat:
-                    continue
-                texname = mat.name
-                if method == "SKIN_MAT_NAME":
-                    appendSkins(skins, texname)
-                    #get skin size below...
+        materials = [mat for obj in obj_sel for mat in obj.data.materials if mat]
+        for mat in materials:
+            appendValidMaterial(skins, mat.name) # material name
 
-                # use nodes.
-                if mat.use_nodes:
-                    # search node images for dimensions/name
-                    for n in mat.node_tree.nodes:
-                        if n and n.type == "TEX_IMAGE" and n.image:
-                            image = n.image
-                            width, height = updateWH(image.size, width, height)  # set image size
-                            appendValidSkins(skins, image)
-                # B2.7 use "texture"
-                elif hasattr(mat, "texture_slots"):
-                    # search texture slots for dimensions/name
-                    for mtex in mat.texture_slots:
-                        if mtex and mtex.texture.type == "IMAGE" and mtex.texture.image:
-                            image = mtex.texture.image
-                            if mtex.use_map_color_diffuse:
-                                width, height = updateWH(image.size, width, height)  # set image size
-                                appendValidSkins(skins, image)
-                # TODO no nodes? use uv name?
-                # use uv name/texture?
+            # use nodes to get skin size/name.
+            if mat.use_nodes:
+                # search node images for dimensions/name
+                for n in mat.node_tree.nodes:
+                    if n and n.type == "TEX_IMAGE" and n.image:
+                        image = n.image
+                        width, height = updateWH(image.size, width, height)  # set image size
+                        appendValidSkins(skins, image) # image
+            # B2.7 use "texture"
+            elif hasattr(mat, "texture_slots"):
+                # search texture slots for dimensions/name
+                for mtex in mat.texture_slots:
+                    if (mtex and mtex.texture and mtex.use_map_color_diffuse
+                        and mtex.texture.image and mtex.texture.type == "IMAGE"
+                    ):
+                        image = mtex.texture.image
+                        width, height = updateWH(image.size, width, height)  # set image size
+                        appendValidSkins(skins, image) # image
 
         kpc.printDone_fn(start_time, prefix)  # Done.
 
@@ -856,14 +877,13 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
         for idx, skin in enumerate(skins):
             mdl.skin_print += "  Skin{}:  \'{}\' \n".format(idx + 1, skin[0:kpc.MD2_MAX_SKINNAME - 1])
         if height > 480 or width > 480:
-            print("WARNING: found texture larger than kingpin max 480px")
+            print("NOTE: found texture larger than kingpin max 480px")
 
         # set min/max (kp crashes with more then 480, but is not use by opengl render)
         width = kpc.forceMinMaxRange(width, 16, 2048)
         height = kpc.forceMinMaxRange(height, 16, 480) # kingpin checks heigt
 
-        mdl.skinWidth = width
-        mdl.skinHeight = height
+        mdl.skinWidth, mdl.skinHeight = width, height
         mdl.skins = skins
         mdl.numSkins = len(skins)
     # end getSkins_fn
@@ -871,7 +891,8 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
     def buildFrameNames_fn(cfg: kpc.export_cfg, numFrames):
         """
         sort the markers. The marker with the frame number closest to 0 will be the first marker in the list.
-        The marker with the biggest frame number will be the last marker in the list"""
+        The marker with the biggest frame number will be the last marker in the list
+        """
         names = []
         timeLineMarkers = []
         scene = bpy.context.scene
@@ -931,17 +952,18 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
         for frame in range(numFrames):
             bbox_min = [9999.0, 9999.0, 9999.0]
             bbox_max = [-9999.0, -9999.0, -9999.0]
+            tmp_bounds = []
+            # calculate quantizer, from head+body+legs
             if mdl.isPlayer:
                 meshes = mdl.frMeData_BBox[frame]
             else:
                 meshes = mdl.frMeData[frame]
             for tmp_mesh in meshes:
-                for vert in tmp_mesh[kpc.IDX_XYZ_V]:
-                    for i in range(3):
-                        if vert[i] < bbox_min[i]:
-                            bbox_min[i] = vert[i]
-                        if vert[i] > bbox_max[i]:
-                            bbox_max[i] = vert[i]
+                tmp_bounds.extend(tmp_mesh.md_xyz_vert)
+            # numpy
+            verts = np.array(tmp_bounds)
+            bbox_min = np.min(verts, axis=0)
+            bbox_max = np.max(verts, axis=0)
 
             # add new bbox for each frame
             mdl.bbox_min.append(bbox_min)
@@ -950,44 +972,78 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
     # end calcSharedBBox_fn
 
     def calculateHitBox_fn(mdl, cfg: kpc.export_cfg, numFrames):
-        """ mdx hitbox """
+        """
+        mdx hitbox.
+        saved order.
+        ob1[all frames], ob2[all frames]
+        ob1.mat1[all frames], ob1.mat2[all frames], ob2.mat1[all frames],
+        """
         start_time = kpc.printStart_fn()  # reset timmer
         prefix = "Calculate mdx hitbox"
 
-        # duplicate scale
-        if not mdl.isPlayer:
+        if cfg.ui_opt_mat_hitbox:  # skin+object based hitbox
+            # Pre-compute per-object, per-material vertex index arrays (once)
+            mat_vert_idx = []
+            for tmp_mesh in mdl.frMeData[0]:
+                groups = [[] for _ in range(tmp_mesh.md_mat_count)]
+                for tri_i, mat in enumerate(tmp_mesh.md_face_mat):
+                    base = tri_i * 3
+                    groups[mat].extend(tmp_mesh.md_idc_vert[base:base+3])
+                mat_vert_idx.append([
+                    np.array(sorted(set(g))) if g else np.array([], dtype=int)
+                    for g in groups
+                ])
+
+            mdl.numSubObjects = sum(tmp.md_mat_count for tmp in mdl.frMeData[0])
+
             for frame in range(numFrames):
                 hitboxTmp = []
-                hitboxMin = mdl.bbox_min[frame]
-                hitboxMax = mdl.bbox_max[frame]
-                hitboxTmp.append([*hitboxMin[0:3], *hitboxMax[0:3]])
+                for obj_i, tmp_mesh in enumerate(mdl.frMeData[frame]):
+                    verts_all = np.array(tmp_mesh.md_xyz_vert)
+                    for mat_i in range(tmp_mesh.md_mat_count):
+                        v_idx = mat_vert_idx[obj_i][mat_i]
+                        if len(v_idx) == 0:
+                            # No faces for this material — skip or use full obj
+                            hitboxTmp.append([0, 0, 0, 0, 0, 0])
+                            continue
+                        verts = verts_all[v_idx]
+                        hitboxTmp.append([
+                            *np.min(verts, axis=0),
+                            *np.max(verts, axis=0),
+                        ])
                 mdl.hitbox.append(hitboxTmp)
-        elif cfg.ui_opt_use_hitbox:
+        elif cfg.ui_opt_use_hitbox: # object based hitbox
+            mdl.numSubObjects = len(mdl.frMeData[0])
             # each object has seperate hitbox
             for frame in range(numFrames):
                 hitboxTmp = []
                 for tmp_mesh in mdl.frMeData[frame]:
-                    verts = np.array(tmp_mesh[kpc.IDX_XYZ_V])
-                    hitboxMin = np.min(verts, axis=0)
-                    hitboxMax = np.max(verts, axis=0)
+                    verts = np.array(tmp_mesh.md_xyz_vert)
                     # add each object
-                    hitboxTmp.append([*hitboxMin[0:3], *hitboxMax[0:3]])
+                    hitboxTmp.append([
+                        *np.min(verts, axis=0),
+                        *np.max(verts, axis=0)
+                    ])
                 # add to frame
                 mdl.hitbox.append(hitboxTmp)
-        else:
-            # merge into 1 hit box
+        else: #if not mdl.isPlayer:
             for frame in range(numFrames):
-                all_verts = []
-                hitboxTmp = []
-                for tmp_mesh in mdl.frMeData[frame]:
-                    all_verts = all_verts + tmp_mesh[kpc.IDX_XYZ_V]
-                verts = np.array(all_verts)
-                hitboxMin = np.min(verts, axis=0)
-                hitboxMax = np.max(verts, axis=0)
-                #add combined
-                hitboxTmp.append([*hitboxMin[0:3], *hitboxMax[0:3]])
-                # add to frame
-                mdl.hitbox.append(hitboxTmp)
+                hitboxMin = mdl.bbox_min[frame]
+                hitboxMax = mdl.bbox_max[frame]
+                mdl.hitbox.append([[*hitboxMin[0:3], *hitboxMax[0:3]]]) # 1 object
+
+            mdl.numSubObjects = 1
+        # else: #TODO reuse shared bbox across frames
+        #     # merge into 1 hit box
+        #     for frame in range(numFrames):
+        #         all_verts = []
+        #         for tmp_mesh in mdl.frMeData[frame]:
+        #             all_verts.extend(tmp_mesh.md_xyz_vert)
+        #         verts = np.array(all_verts)
+        #         hitboxMin = np.min(verts, axis=0)
+        #         hitboxMax = np.max(verts, axis=0)
+        #         # add to frame
+        #         mdl.hitbox.append([*hitboxMin[0:3], *hitboxMax[0:3]])
 
         kpc.printDone_fn(start_time, prefix)  # Done.
     # end calculateHitBox_fn
@@ -1001,7 +1057,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
                 kpc.printProgress_fn(frame, numFrames, prefix)  # print progress
             m_tmp = []
             for tmp_mesh in mdl.frMeData[frame]:
-                _vn_ = np.array(tmp_mesh[kpc.IDX_XYZ_VN])
+                _vn_ = np.array(tmp_mesh.md_xyz_norm)
                 # Calculate dot products for all vn vectors against MD2_VN
                 dot_products = np.dot(_vn_, MD2_VN.T)  # Shape: (number of vns, 162)
 
@@ -1017,7 +1073,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
     def get_numTris(mdl, cfg):
         triCount = 0  # self.numTris
         for tmp_mesh in mdl.frMeData[0]:
-            triCount += tmp_mesh[kpc.IDX_I_FACE]
+            triCount += tmp_mesh.md_face_count
 
         if cfg.ui_opt_is_hd is True:
             if triCount > kpc.MDX5_MAX_TRIANGLES:
@@ -1035,7 +1091,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
     def get_numVerts(mdl, cfg):
         vertCount = 0  # self.numVerts
         for tmp_mesh in mdl.frMeData[0]:
-            vertCount += tmp_mesh[kpc.IDX_I_VERT]
+            vertCount += tmp_mesh.md_vert_count
 
         if cfg.ui_opt_is_hd is True:
             if vertCount > kpc.MDX5_MAX_VERTS:
@@ -1053,7 +1109,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
     def get_numUV(mdl):
         uvCount = 0
         for tmp_mesh in mdl.frMeData[0]:
-            uvCount += tmp_mesh[kpc.IDX_I_UV]
+            uvCount += tmp_mesh.md_uv_count
         return uvCount
     # end get_numUV
 
@@ -1077,11 +1133,16 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
     else:
         numFrames = min(1 + cfg.ui_opt_fr_end - cfg.ui_opt_fr_start, kpc.MD2_MAX_FRAMES)
 
+    # animated, get all objects frame state at once
     setupInternalArrays_fn(export_mdls, cfg, numFrames)  # generate mesh/objects
+
+    #build frames names from timeline
     frameNames = buildFrameNames_fn(cfg, numFrames)  # setup frame names
 
-    MD2_VN = np.array(kpc.MD2_VN)
+    # speedup vertex normal index searching
+    MD2_VN = np.array(kpc.MD2_VN) #md2 vertex index
 
+    # combine models
     for mdl in export_mdls:
         if not mdl.valid:
             continue
@@ -1136,12 +1197,11 @@ def write_fn(filePath, mdl, cfg):
                 return max(-32768, min(32767, v))
 
             for tmp_mesh in mdl.frMeData[0]:
-                # tmp_mesh[kpc.IDX_I_UV]
-                for uv in tmp_mesh[kpc.IDX_XY_UV]:
+                for uv in tmp_mesh.md_xy_uv:
                     data = struct.pack(
                         "<2h",
                         int(uv[0] * mdl.skinWidth),
-                        int(1-uv[1] * mdl.skinHeight))  # TODO check invalid 0-1 uv space
+                        int(1-uv[1] * mdl.skinHeight))
                     file.write(data)  # uv
 
         # #################################
@@ -1149,11 +1209,11 @@ def write_fn(filePath, mdl, cfg):
         ofset_face = 0
         ofset_uv = 0
         for mesh in mdl.frMeData[0]:
-            face = mesh[kpc.IDX_IDC_V]
-            uv = mesh[kpc.IDX_IDC_UV]
-            count_uv = mesh[kpc.IDX_I_UV]
-            count_vert = mesh[kpc.IDX_I_VERT]
-            count_face = mesh[kpc.IDX_I_FACE]
+            face = mesh.md_idc_vert
+            uv = mesh.md_idc_uv
+            count_uv = mesh.md_uv_count
+            count_vert = mesh.md_vert_count
+            count_face = mesh.md_face_count
             for idx in range(count_face):
                 # 0,2,1 for good cw/ccw
                 f_idx = idx * 3
@@ -1206,7 +1266,7 @@ def write_fn(filePath, mdl, cfg):
         if cfg.isMdx:
             # ofsVertexInfo #mdx
             for mdxObj, tmp_mesh in enumerate(mdl.frMeData[0]):
-                for _ in range(tmp_mesh[kpc.IDX_I_VERT]):
+                for _ in range(tmp_mesh.md_vert_count):
                     bits = 1 << mdxObj if cfg.ui_opt_use_hitbox else 1
                     data = struct.pack("<i", bits)  # fill as object #1 TODO
                     file.write(data)  # vert index
@@ -1215,8 +1275,8 @@ def write_fn(filePath, mdl, cfg):
             # ofsSfxEntries #mdx
             # ofsBBoxFrames #mdx
             for mdxObj in range(mdl.hdr.numSubObjects):
-                for i in range(mdl.hdr.numFrames):
-                    data = struct.pack("<6f", *mdl.hitbox[i][mdxObj][:6])
+                for fr in range(mdl.hdr.numFrames):
+                    data = struct.pack("<6f", *mdl.hitbox[fr][mdxObj][:6])
                     file.write(data)
     #finish open with
 
@@ -1235,24 +1295,28 @@ def Export_MD2_fn(self,
 
     cfg = kpc.export_cfg(fpath_, fname_, fext_, f_ismdx)
 
-    export_mdls = []
     # gather all needed objects. make unique models for multi export
-    if cfg.ui_opt_is_player:
-        export_mdls.append(kpc.mdl_export(obj_player, True, "head"))
-        export_mdls.append(kpc.mdl_export(obj_player, True, "body"))
-        export_mdls.append(kpc.mdl_export(obj_player, True, "legs"))
-        if cfg.ui_opt_exp_weps:
-            for o in obj_vis:
-                if o not in obj_player: # weapons etc..
-                    export_mdls.append(kpc.mdl_export(
-                        [o], False, o.name.split('.')[0]))
+    export_mdls = []
+    if cfg.ui_opt_exp_selected:
+        # combine selected
+        mdl = kpc.mdl_export(obj_sel, False, cfg.f_name.split('.')[0])
+        export_mdls.append(mdl)
     else:
-        export_mdls.append(kpc.mdl_export(
-            obj_sel, False, cfg.f_name.split('.')[0]))
+        # export multiple files. TODO: file->export is a bit confusing here.
+        if cfg.ui_opt_is_player:
+            export_mdls.append(kpc.mdl_export(obj_player, True, "head"))
+            export_mdls.append(kpc.mdl_export(obj_player, True, "body"))
+            export_mdls.append(kpc.mdl_export(obj_player, True, "legs"))
+        if cfg.ui_opt_exp_weps or cfg.ui_opt_exp_all:
+            for o in obj_vis:
+                if o in obj_player: # get weapons etc..
+                    continue
+                mdl = kpc.mdl_export([o], False, o.name.split('.')[0])
+                export_mdls.append(mdl)
 
-    ret_error = False
     try:
-        setup_data_fn(cfg, export_mdls)  # context)
+        # build export data
+        setup_data_fn(cfg, export_mdls)
         print("Writing...")
 
         for mdl in export_mdls:
@@ -1265,12 +1329,12 @@ def Export_MD2_fn(self,
 
     except IOError:
         print("IO Error")
-        ret_error = True
+        return True
     except Exception as e:
         print("Caught error exporting model")
         print(e)
-        ret_error = True
         # traceback.print_exc()
         # raise RuntimeError("Only mesh objects can be exported")
+        return True
 
-    return ret_error
+    return False

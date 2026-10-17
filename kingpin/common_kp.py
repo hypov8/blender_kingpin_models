@@ -11,8 +11,9 @@ blender compatability tools
 import bpy
 import struct
 from timeit import default_timer as timer
-import bmesh
-from mathutils import Matrix
+# import bmesh
+from mathutils import Vector
+from collections import namedtuple
 from math import exp, radians
 from bpy.types import PropertyGroup
 from bpy.props import (
@@ -34,14 +35,9 @@ SK_MODE_VERT = "SK_VERTEX"
 SK_MODE_REL = "SK_REL"
 SK_MODE_ABS = "SK_ABS"
 
-IDX_IDC_V = 0   # indices (vert)
-IDX_IDC_UV = 1  # indices (vert uv)
-IDX_XYZ_V = 2   # xyz (pos vert)
-IDX_XYZ_VN = 3  # xyz (pos vert normal)
-IDX_XY_UV = 4   # XY (pos UV)
-IDX_I_FACE = 5  # COUNT (face)
-IDX_I_VERT = 6  # COUNT (vertex)
-IDX_I_UV = 7    # COUNT (UV)
+UI_OBJ_SINGLE = "MDX_OBJ_NONE"
+UI_OBJ_SKINS = "MDX_OBJ_SKINS"
+UI_OBJ_OBJECTS = "MDX_OBJ_OBJECTS"
 
 MDX5_MAX_TRIANGLES = 8192
 MDX5_MAX_VERTS = 4096
@@ -328,7 +324,8 @@ class mdx_hdr_export:
         self.numFrames = mdl.numFrames
         self.numSfxDefines = 0
         self.numSfxEntries = 0
-        self.numSubObjects = 1 if not cfg.ui_opt_use_hitbox else len(mdl.mdl_objs)
+        self.numSubObjects = mdl.numSubObjects
+        # self.numSubObjects = 1 if not cfg.ui_opt_use_hitbox else len(mdl.mdl_objs)
         # offsets
         self.ofsSkins = struct.calcsize("<23i")
         self.ofsTris = self.ofsSkins + struct.calcsize("<64s") * self.numSkins
@@ -378,7 +375,6 @@ class md2_hdr_export:
 
 class mdl_export:
     ''' _ '''
-
     def __init__(self, objs, isPlayer: bool, meshName: str):
         self.valid = True # set false on fail
         self.obj_array = []
@@ -391,8 +387,6 @@ class mdl_export:
         self.vertices = -1
         self.faces = 0
         self.status = ("", "")
-
-        # self.isMdx = bool(isMdx)
 
         self.numFrames = 0
 
@@ -414,6 +408,8 @@ class mdl_export:
         self.numGLCmds = 0
         self.frameSize = 0
 
+        self.numSubObjects = 0 #mdx
+
         self.hdr = None #mdl_hdr_export(None)
 
         self.save_name = meshName
@@ -424,7 +420,6 @@ class mdl_export:
             for o in objs:
                 if o.name[:len(meshName)].lower() == meshName:
                     self.mdl_objs.append(o)
-
         else:
             self.mdl_objs = objs
             self.mdl_objs_player = []
@@ -441,9 +436,13 @@ class export_cfg:
         self.isMdx = bool(isMdx)
 
         ui_export_ = bpy.context.window_manager.kp_export_
+        mode = ui_export_.ui_opt_export_mode
+
         self.ui_opt_animated = ui_export_.ui_opt_animated
-        self.ui_opt_is_player = ui_export_.ui_opt_is_player
-        self.ui_opt_exp_weps = ui_export_.ui_opt_exp_weps
+        self.ui_opt_exp_selected = mode == "EXP_MERGED"
+        self.ui_opt_is_player = mode in ("MDX_PLAYER_ONLY", "EXP_PLAYER_WEPS")
+        self.ui_opt_exp_weps = mode in ("EXP_PLAYER_WEPS", "EXP_ADDON_ONLY")
+        self.ui_opt_exp_all = mode == "EXP_ALL_ITEMS"
         self.ui_opt_use_hitbox = ui_export_.ui_opt_use_hitbox
         self.ui_opt_tex_name = ui_export_.ui_opt_tex_name
         self.ui_opt_fr_start = ui_export_.ui_opt_fr_start
@@ -452,17 +451,31 @@ class export_cfg:
         self.ui_opt_is_hd = ui_export_.ui_opt_is_hd
         self.ui_opt_cust_vn = ui_export_.ui_opt_cust_vn
 
-        # fix invalid state
-        if not self.ui_opt_animated:
-            self.ui_opt_is_player = False
-            self.ui_opt_exp_weps = False
-            self.ui_opt_use_hitbox = False
-        elif not self.ui_opt_is_player:
-            self.ui_opt_exp_weps = False
-            self.ui_opt_use_hitbox = False
+        # obj/hitbox mode. use dropdown
+        self.ui_opt_mat_hitbox = False  # UI_OBJ_SINGLE
+        self.ui_opt_use_hitbox = False
+        if ui_export_.ui_opt_export_mdx_obj == UI_OBJ_OBJECTS:
+            self.ui_opt_use_hitbox = True
+        elif ui_export_.ui_opt_export_mdx_obj == UI_OBJ_SKINS:
+            self.ui_opt_use_hitbox = True
+            self.ui_opt_mat_hitbox = True
 
         if self.ui_opt_apply_modify is False:
             self.ui_opt_cust_vn = False
+
+
+MeshData = namedtuple("MeshData", [
+    "md_idc_vert",
+    "md_idc_uv",
+    "md_xyz_vert",
+    "md_xyz_norm",
+    "md_xy_uv",
+    "md_face_count",
+    "md_vert_count",
+    "md_uv_count",
+    "md_face_mat",
+    "md_mat_count"
+])
 
 
 def string_to_bytes(s: str, count) -> bytes:
@@ -811,23 +824,21 @@ def get_groups():
     return bpy.data.groups.get("MyGroup")
 
 
-def get_uv_data_new(context, uv_name=""):
+def get_uv_data_new(me_data, uv_name=""):
     """
-    2.80: <context.uv_layers.new()>
-    2.79: <context.uv_textures.new()>
+    2.80: <me_data.uv_layers.new()>
+    2.79: <me_data.uv_textures.new()>
     """
     uv_type = 0
     uv_data = None
-    if hasattr(context, "uv_textures"):
+    if hasattr(me_data, "uv_textures"):
         # tessface_uv_textures
+        uv_data = me_data.uv_textures.new(name=uv_name)
+        me_data.uv_textures.active = uv_data
+    else: # B2.8
         uv_type = 1
-        uv_data = context.uv_textures.new(name=uv_name)
-        context.uv_textures.active = uv_data
-    else:
-        # print("found uv_layers")  # B2.8
-        uv_type = 2  # TODO constant?
-        uv_data = context.uv_layers.new(name=uv_name)
-        context.uv_layers.active = uv_data
+        uv_data = me_data.uv_layers.new(name=uv_name)
+        me_data.uv_layers.active = uv_data
     return (uv_type, uv_data)
 
 
@@ -943,14 +954,6 @@ def set_uv_data_active(context, obj):
         context.uv_layers.active = obj  # B2.8
     else:
         context.tessface_uv_textures.active = obj
-
-
-# def set_coll_group_link(b, name):
-#     if hasattr(b, "collection"):
-#         # return b.collection.objects  # B2.8
-#         return b.collection.children.link(name)
-#     else:
-#         return b.scene.groups
 
 
 def set_object_link(context, obj):
@@ -1291,6 +1294,61 @@ def getDepsgraph():
     return None
 
 
+def getVertexNormalsFromMesh_faceWeight(me):
+    """
+    used to keep polygon weight(1 face) to weight normal
+    better than trianglated, where 2 faces could add edge to normal.
+    TODO add as option?
+    """
+    me_verts = me.vertices
+    vert_count = len(me_verts)
+    accum_normals = [[0.0, 0.0, 0.0] for _ in range(vert_count)]
+    for poly in me.polygons:
+        pn = poly.normal
+        for v_idx in poly.vertices:
+            accum_normals[v_idx][0] += pn[0]
+            accum_normals[v_idx][1] += pn[1]
+            accum_normals[v_idx][2] += pn[2]
+    return accum_normals
+
+
+def getVertexNormalsFromMesh(me, custom_vn=False):
+    """
+    get local cords of vetex normals
+
+    note: model is not split at vertex.
+            set mesh to smoothed and detatch faces at hard edge
+            or use "edge split" modifier with hard edges marked
+    """
+    me_verts = me.vertices
+    vert_count = len(me.vertices)
+
+    if not custom_vn:
+        return [list(v.normal) for v in me_verts]
+
+    ret_normals = [Vector((0.0, 0.0, 0.0)) for _ in range(vert_count)]
+    has_custom = False
+
+    if hasattr(me, "corner_normals"):
+        # ---- Blender 4.1+ ----
+        if me.corner_normals:
+            has_custom = True
+            for loop in me.loops:
+                v_idx = loop.vertex_index
+                ret_normals[v_idx] += me.corner_normals[loop.index].vector
+    elif hasattr(me, "calc_normals_split"):
+        # ---- Blender 2.7x to 4.0 ----
+        me.calc_normals_split()
+        has_custom = True
+        for loop in me.loops:
+            v_idx = loop.vertex_index
+            ret_normals[v_idx] += loop.normal
+
+    if has_custom:
+        return [list(n) for n in ret_normals]
+    return [list(v.normal) for v in me_verts]
+
+
 def getEvaluatedMesh(obj, depsgraph, apply_modifyer=True):
     """
     get evaluated mesh
@@ -1337,7 +1395,7 @@ def getMeshWorldCords_fn(obj, depsgraph, apply_modifyer=True):
             eval_obj.to_mesh_clear() #cleanup
 
     # B2.79
-    me, _ = getEvaluatedMesh(obj, depsgraph, apply_modifyer)
+    me, _ = getEvaluatedMesh(obj, None, apply_modifyer)
     try:
         mw = obj.matrix_world
         return [mw * v.co for v in me.vertices]
@@ -1356,9 +1414,67 @@ def setMeshLocalCords_fn(obj, world_positions):
     inv = obj.matrix_world.inverted()
     if check_version(2, 80, 0) >= 0:
         return [inv @ p for p in world_positions]
-
     # B2.79
     return [inv * p for p in world_positions]
+
+
+def isMatrix_identity(obj):
+    """
+    Check if matrix is identity or empty safely across 2.79 up to 4.x
+    """
+    mw = obj.matrix_world
+    # Standard identity check: diagonals are 1.0, everything else is 0.0
+    if abs(mw[0][0]-1) + abs(mw[1][1]-1) + abs(mw[2][2]-1) + abs(mw[3][3]-1) < 0.0001:
+        return True
+    return False
+
+
+def transformMesh(obj, me, global_cords):
+    """ get vertex pos in global cords """
+    if not global_cords or isMatrix_identity(obj):
+        return
+
+    mw = obj.matrix_world
+    me.transform(mw)
+
+   # 2. Extract determinant safely based on Blender Version API differences
+    if check_version(2, 80, 0) < 0:
+        det = mw.determinant()
+        me.calc_normals_split()
+    else:
+        det = mw.determinant if not hasattr(mw.determinant, "__call__") else mw.determinant()
+
+    if det < 0.0:
+        me.flip_normals()
+        print("Note: object transform is negative, flipping face normals")
+    # done transformMesh()
+    # #####################
+
+
+def transformNormals(obj, vn_data, global_cords):
+
+    if global_cords and not isMatrix_identity(obj):
+        return vn_data # Safely return raw data; they are already in world space!
+
+    # Fallback/Skip condition if no transformation happened at all
+    if not global_cords or isMatrix_identity(obj):
+        return vn_data
+
+    mat = obj.matrix_world.inverted().transposed().to_3x3()
+    if check_version(2, 80, 0) >= 0:
+        return [list((mat @ Vector(n)).normalized()) for n in vn_data]
+    # B2.79
+    return [list((mat * Vector(n)).normalized()) for n in vn_data]
+
+
+def computeTriangleData(me):
+    """ run this before any object transformation """
+    if hasattr(me, "calc_loop_triangles"):
+        # Blender 2.80+
+        me.calc_loop_triangles()
+    else:
+        # Legacy Blender 2.79
+        me.calc_tessface()
 
 
 # get mesh data at current frame
@@ -1380,153 +1496,112 @@ def getMeshArrays_fn(obj_group=None,
 
     :rtype: array
     :return: obj_array(
-        : IDX_IDC_V = 0   # indices (vert)
-        : IDX_IDC_UV = 1  # indices (vert uv)
-        : IDX_XYZ_V = 2   # xyz (pos vert)
-        : IDX_XYZ_VN = 3  # xyz (pos vert normal)
-        : IDX_XY_UV = 4   # XY (pos UV)
-        : IDX_I_FACE = 5  # COUNT (face)
-        : IDX_I_VERT = 6  # COUNT (vertex)
-        : IDX_I_UV = 7    # COUNT (UV)
+        : md_idc_vert    # indices (vert)
+        : md_idc_uv      # indices (vert uv)
+        : md_xyz_vert    # xyz (pos vert)
+        : md_xyz_norm    # xyz (pos vert normal)
+        : md_xy_uv       # XY (pos UV)
+        : md_face_count  # COUNT (face)
+        : md_vert_count  # COUNT (vertex)
+        : md_uv_count    # COUNT (UV)
     )
     """
-
-    # convert poly to tri
-    def triangulateMesh_fn(obj, depsgraph,
-                           apply_modifyer, global_cords):
-        """ triangulate mesh """
-        me, depMesh = getEvaluatedMesh(obj, depsgraph, apply_modifyer)
-        if not me:
-            return None, None
-
-        bm = bmesh.new()
-        bm.from_mesh(me)
-        bmesh.ops.triangulate(bm, faces=bm.faces)  # triaglulate
-        bm.to_mesh(me)
-        bm.free()
-        if global_cords:  # get vertex pos in global cords
-            mat_id = Matrix()
-            if check_version(2, 80, 0) >= 0:  # B2.8
-                me.transform(mat_id @ obj.matrix_world)
-            else:
-                me.transform(mat_id * obj.matrix_world)
-
-        if obj.matrix_world.determinant() < 0.0:
-            me.flip_normals()
-            print("Note: transform is negative, normals fliped")
-
-        return me, depMesh
-    # done triangulateMesh_fn()
-
-    def veckey3d(v):
-        return [round(v.x, 4), round(v.y, 4), round(v.z, 4)]
-
-    def fillMeshArrays(me, faceuv, uv_texture, uv_layer, custom_vn):
+    def get_triangle_data(me, faceuv):
         """
-        generate arrays
+        Returns (vert_indices, uvs)
+        Each is a flat list of length tri_count * 3
         """
-        # Make our own list so it can be sorted to reduce context switching
-        face_index_pairs = [(face, index)
-                            for index, face in enumerate(me.polygons)]
-        me_verts = me.vertices[:]  # get vert array
-        me_loops = me.loops
+        vert_indices = []
+        uvs = []
+        mat_indices = []
+        uv_data = None
 
-        # counters
-        face_count = len(me.polygons)
-        vert_count = len(me_verts)
-
-        tmp_idc_vert = []  # * (face_count * 3)  # IDX_IDC_V = 0   # indices
-        tmp_idc_uv = []    # * (face_count * 3)  # IDX_IDC_UV = 1  # indices
-        tmp_XYZ_vert = []  # * vert_count        # IDX_XYZ_V = 2   # xyz
-        tmp_XYZ_norm = [                         # IDX_XYZ_VN = 3  # xyz
-            [0, 0, 1] for _ in range(vert_count)]
-        tmp_XY_uv = []                           # IDX_XY_UV = 4   # XY
-
-        # mats. TODO not needed?
-        # if faceuv:
-
-        # Vertex position
-        for i, v in enumerate(me_verts):
-            tmp_XYZ_vert.append(v.co[:])   # XYZ float
-
-        # Vertex normals
-        # if check_version(4, 10, 0) >= 0: # B4.1
-        if not hasattr(me, "calc_normals_split"):
-            if custom_vn:
-                # matrix_normal = obj.matrix_world.to_3x3().normalized()
-                vNorms = me.corner_normals
-                for v in me_loops:
-                    v_idx = v.vertex_index
-                    vN = vNorms[v_idx]
-                    # world_n = matrix_normal @ vN.vector #fix rotation?
-                    tmp_XYZ_norm[v_idx] = veckey3d(vN.vector)
-            else:
-                for i, v in enumerate(me.vertex_normals):
-                    tmp_XYZ_norm[i] = veckey3d(v.vector)
+        if hasattr(me, "loop_triangles"):
+            # 2.80+
+            # me.calc_loop_triangles()
+            if faceuv:
+                uv_data = me.uv_layers.active.data
+            for tri in me.loop_triangles:
+                mat_indices.append(tri.material_index) # material
+                vert_indices.extend(tri.vertices)
+                if uv_data:
+                    for l_idx in tri.loops:
+                        uvs.append(tuple(uv_data[l_idx].uv))
         else:
-            me.calc_normals_split()  # version < B4.1
-            if custom_vn:
-                # matrix_normal = obj.matrix_world.to_3x3().normalized()
-                # note: model is not split at vertex.
-                #       set mesh to smoothed and detatch faces at hard edge
-                #       or use "edge split" modifier with hard edges marked
-                for face, f_index in face_index_pairs:
-                    for l_idx in face.loop_indices:
-                        f_loop = me_loops[l_idx]
-                        # world_n = matrix_normal @ f_loop.normal
-                        world_n = f_loop.normal
-                        tmp_XYZ_norm[f_loop.vertex_index] = veckey3d(
-                            world_n)  # convert to short float
-            else:
-                for i, v in enumerate(me_verts):
-                    tmp_XYZ_norm[i] = veckey3d(v.normal)  # XYZ float
+            # 2.79: UVs from tessface_uv_textures, normals from split_normals
+            # me.calc_tessface()
+            if faceuv:
+                uv_data = me.tessface_uv_textures.active.data
+            for face in me.tessfaces:
+                v = face.vertices
+                if len(v) == 3:
+                    mat_indices.append(face.material_index) # material
+                    vert_indices.extend([v[0], v[1], v[2]])
+                    if uv_data:
+                        uv_face = uv_data[face.index]
+                        uvs.extend([
+                            tuple(uv_face.uv1), tuple(uv_face.uv2),tuple(uv_face.uv3)])
+                else:
+                    mat_indices.extend([face.material_index, face.material_index])
+                    vert_indices.extend([v[0], v[1], v[2], v[0], v[2], v[3]])
+                    if uv_data:
+                        uv_face = uv_data[face.index]
+                        uvs.extend([
+                            tuple(uv_face.uv1), tuple(uv_face.uv2), tuple(uv_face.uv3), # Tri 1
+                            tuple(uv_face.uv1), tuple(uv_face.uv3), tuple(uv_face.uv4)  # Tri 2
+                        ])
 
-        # UV
-        uv_unique_count = 0  # IDX_I_UV
+        return vert_indices, uvs, mat_indices #, normals
+
+    def fillMeshArrays(me, faceuv, custom_vn):
+        """ generate arrays """
+        me_verts = me.vertices
+        ret_vert_count = len(me_verts)
+        ret_count_mat = max(len(me.materials), 1)
+        tmp_idc_uv = []
+        tmp_XY_uv = []
+
+        # --- Vertex position ---
+        tmp_XYZ_vert = [v.co[:] for v in me_verts]
+
+        # --- Vertex normals ---
+        tmp_XYZ_norm = getVertexNormalsFromMesh(me, custom_vn)
+
+        # --- face indices ---
+        tmp_idc_vert, uvs, tmp_face_matid = get_triangle_data(me, faceuv)
+
+        # --- UV cords ---
+        uv_unique_count = 0
         if faceuv:
-            uv = f_index = uv_index = uv_key = uv_val = uv_ls = None
-            uv_face_mapping = [None] * len(face_index_pairs)
             uv_dict = {}
             uv_get = uv_dict.get
-            for f, f_index in face_index_pairs:
-                uv_ls = uv_face_mapping[f_index] = []
-                for uv_index, l_index in enumerate(f.loop_indices):
-                    uv = uv_layer[l_index].uv
-                    uv_key = me_loops[l_index].vertex_index, (uv[0], uv[1])
-                    uv_val = uv_get(uv_key)
-                    if uv_val is None:
-                        uv_val = uv_dict[uv_key] = uv_unique_count
-                        tmp_XY_uv.append((uv[0], uv[1]))  # XY float
-                        uv_unique_count += 1
-                    uv_ls.append(uv_val)
-            del uv_dict, uv, f_index, uv_index, uv_ls, uv_get, uv_key, uv_val
-            # Only need uv_unique_count and uv_face_mapping
+            for i, v_idx in enumerate(tmp_idc_vert):
+                uv = uvs[i]
+                uv_key = (v_idx, uv)
+                uv_val = uv_get(uv_key)
+                if uv_val is None:
+                    uv_val = uv_dict[uv_key] = uv_unique_count
+                    tmp_XY_uv.append(uv)
+                    uv_unique_count += 1
+                tmp_idc_uv.append(uv_val)
 
-        # vertex indicies
-        for f, f_index in face_index_pairs:
-            f_v = [
-                (vi, me_verts[v_idx], l_idx)
-                for vi, (v_idx, l_idx) in
-                enumerate(zip(f.vertices, f.loop_indices))
-            ]
-            for i, (vi, v, li) in enumerate(f_v):  # TODO cleanup unused
-                tmp_idc_vert.append(v.index)  # vert (indices)
-                if faceuv:  # uv (indices)
-                    tmp_idc_uv.append(uv_face_mapping[f_index][vi])
+        face_count = len(tmp_idc_vert) // 3 # face= 3verts
 
-        # ###### end ###### #
-        return (tmp_idc_vert,  # IDX_IDC_V = 0   # indices
-                tmp_idc_uv,    # IDX_IDC_UV = 1  # indices
-                tmp_XYZ_vert,  # IDX_XYZ_V = 2   # xyz
-                tmp_XYZ_norm,  # IDX_XYZ_VN = 3  # xyz
-                tmp_XY_uv,     # IDX_XY_UV = 4   # XY
-                face_count,    # IDX_I_FACE = 5  # COUNT
-                vert_count,    # IDX_I_VERT = 6  # COUNT
-                uv_unique_count)  # IDX_I_UV = 7 # COUNT
+        return MeshData(
+            md_idc_vert=tmp_idc_vert,  # indices
+            md_idc_uv=tmp_idc_uv,      # indices
+            md_xyz_vert=tmp_XYZ_vert,  # xyz
+            md_xyz_norm=tmp_XYZ_norm,  # xyz
+            md_xy_uv=tmp_XY_uv,        # XY
+            md_face_count=face_count,     # COUNT
+            md_vert_count=ret_vert_count, # COUNT
+            md_uv_count=uv_unique_count,  # COUNT
+            md_face_mat=tmp_face_matid,
+            md_mat_count=ret_count_mat)   # COUNT
     # done fillMeshArrays()
     # #####################
 
-    tmp_data = []
+    ret_ob_data = []
 
     if obj_group is None or len(obj_group) == 0:
         raise ValueError("No mesh in array")
@@ -1535,46 +1610,49 @@ def getMeshArrays_fn(obj_group=None,
         depsgraph = bpy.context.evaluated_depsgraph_get()
         for obj in obj_group:
             obj = bpy.data.objects[obj.name].evaluated_get(depsgraph)
-            me, depMesh = triangulateMesh_fn(
-                obj, depsgraph, apply_modifyer, global_cords)
-            if me is None:
+            me, depMesh = getEvaluatedMesh(obj, depsgraph, apply_modifyer)
+            if not me:
                 continue
-            faceuv = uv_layer = None
+
+            faceuv = False
             if getUV:
                 faceuv = bool(len(me.uv_layers) > 0)
                 if not faceuv:
                     me.uv_layers.new()  # add uv map
                     faceuv = True
-                uv_layer = me.uv_layers.active.data[:]
-            # mesh array
-            tmp_data.append(
-                fillMeshArrays(me, faceuv, None, uv_layer, custom_vn))
+            computeTriangleData(me)
+            transformMesh(obj, me, global_cords)
+            m_data = fillMeshArrays(me, faceuv, custom_vn)
+            normals = transformNormals(obj, m_data.md_xyz_norm, global_cords)
+            m_data = m_data._replace(md_xyz_norm=normals) # repack
+            ret_ob_data.append(m_data)
             # clean up
             depMesh.to_mesh_clear()
     else:  # B2.79
         for obj in obj_group:
-            me, _ = triangulateMesh_fn(
-                obj, None, apply_modifyer, global_cords)
-            if me is None:
+            me, _ = getEvaluatedMesh(obj, None, apply_modifyer)
+            if not me:
                 continue
-            faceuv = uv_texture = uv_layer = None
+
+            faceuv = False
             if getUV:
                 faceuv = len(me.uv_textures) > 0
                 if not faceuv:
                     me.uv_textures.new()  # add uv map
                     faceuv = True
-                uv_texture = me.uv_textures.active.data[:]
-                uv_layer = me.uv_layers.active.data[:]
-            # mesh array
-            tmp_data.append(
-                fillMeshArrays(me, faceuv, uv_texture, uv_layer, custom_vn))  # get_UV=getUV))
+            computeTriangleData(me)
+            transformMesh(obj, me, global_cords)
+            m_data = fillMeshArrays(me, faceuv, custom_vn)
+            normals = transformNormals(obj, m_data.md_xyz_norm, global_cords)
+            m_data = m_data._replace(md_xyz_norm=normals) # repack
+            ret_ob_data.append(m_data)
             # clean up
             bpy.data.meshes.remove(me)
 
-    if len(tmp_data) == 0:
+    if len(ret_ob_data) == 0:
         raise ValueError("No mesh in array")
 
-    return tmp_data
+    return ret_ob_data
 # end getMeshArrays_fn
 
 

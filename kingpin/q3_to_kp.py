@@ -336,10 +336,10 @@ class KINGPIN_PT_Q3_to_KP_GUI(Panel):
         row = layout.row()
         row.scale_y = 1.2
         row.alignment = 'CENTER'
-        row.operator("kp.ui_btn_do_conversion")  # Convert to Kingpin
+        row.operator("kp.ui_btn_do_conversion", icon="ANIM")  # Convert to Kingpin
         row = layout.row()
         row.alignment = 'CENTER'
-        row.operator("kp.ui_btn_info", text="Help...")  # Info
+        row.operator("kp.ui_btn_info", text="Help...", icon="HELP")  # Info
 
 
 # button CONFIG
@@ -996,10 +996,7 @@ class Quake3_to_Kingpin:
         fPath = key_prop.ui_path_cfg_file
         Frame_q3 = namedtuple('Frame_q3', ['start', 'total_fr', 'fps'])
 
-        def read_cfg_file():
-            ani_Index = 0  # as integer
-            lineNum = 0
-            offsetLegsTime = 0  # as integer
+        def read_cfg_file(cfg_filename):
 
             def _get_cfg_values(parts):
                 """ get 4 int values. return None if failed """
@@ -1010,6 +1007,10 @@ class Quake3_to_Kingpin:
                     else:
                         return [None, None, None, None]
                 return result
+
+            ani_Index = 0  # as integer
+            lineNum = 0
+            offsetLegsTime = 0  # as integer
 
             with open(file=fPath, mode="r", encoding="latin-1") as file: # "rt", "errors="replace")
                 for line in file:
@@ -1023,8 +1024,7 @@ class Quake3_to_Kingpin:
 
                     if frameFPS <= 0:
                         frameFPS = 15  # cant devide by zero
-                    if frameEnd < 1:
-                        frameEnd = 1  # just incase its zero
+                    frameEnd = max(frameEnd, 1)  # just incase its zero
 
                     if ani_Index == Q3_Seq.LEGS_WALKCR:
                         offsetLeg = self.Q3_Anims[Q3_Seq.TORSO_GESTURE].start
@@ -1046,24 +1046,25 @@ class Quake3_to_Kingpin:
             #end with open
 
         try:
-            read_cfg_file()
+            if not fPath:
+                raise FileNotFoundError("empty animation.cfg path")
+            read_cfg_file(fPath)
             print("Done reading animation.cfg")
-        except Exception():
+        except FileNotFoundError:
             print("ERROR: reading animation.cfg")
-            return 0
+            return 1
 
         #debug
         # for i, li in enumerate(self.Q3_Anims):
         #     print("Anim:%i start:%i end:%i" % (i+1, li.start, li.total_fr))
 
-
         if len(self.Q3_Anims) <= Q3_Seq.LEGS_TURN:
             print("ERROR: animation count to low")
-            return 0
+            return 2
 
         # arange death by frame counts
         sortDeathAni_ByFrames_fn()
-        return 1
+        return 0
     # END getAnimationFile_fn
 
 
@@ -1093,8 +1094,12 @@ class KINGPIN_UI_BUTTON_GO(Operator):
         bpy.context.scene.frame_set(0)  # todo restore
 
         # read animation.cfg
-        if not q3ToKp.getAnimationFile_fn(key_prop):
-            self.report({'INFO'}, "ERROR: animation.cfg failed.")
+        err_code = q3ToKp.getAnimationFile_fn(key_prop)
+        if err_code:
+            if err_code == 1:
+                self.report({'INFO'}, "ERROR: animation.cfg failed.")
+            else:
+                self.report({'INFO'}, "ERROR: animation.cfg failed.")
             return {'FINISHED'}
 
         # start conversion

@@ -15,12 +15,12 @@ md2 smooth mesh
 import os
 import bpy
 from bpy.types import Operator, Panel, Object, PropertyGroup
-from bpy.props import BoolProperty, IntProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, IntProperty, PointerProperty, StringProperty, EnumProperty
 from bpy_extras.io_utils import ImportHelper
-from mathutils import Vector, kdtree  # Matrix, Euler
+from mathutils import kdtree  # Matrix, Euler
 from math import radians
-from .export_kp import draw_export
-from .import_kp import draw_import
+from . export_kp import draw_export
+# from .import_kp import draw_import
 from . import common_kp as kpc
 import numpy as np
 import itertools
@@ -42,13 +42,14 @@ class KINGPIN_Tools_props(PropertyGroup):
         description="view as wireframe",
         default=True
     )
-    ui_floor_cube = BoolProperty(
-        name="Z-Grid Only (No X/Y)",
-        description=(
-            "Generate a grid for floor only\n" +
-            "Disabled: Adds grid to all 3 axis"
+    ui_floor_cube = EnumProperty(
+        name="grix axis",
+        description="What axis to show grid on",
+            items=(
+            ('1', "Z", "Display a grid on Z axis"),
+            ('2', "XYZ", "Display a grid on all 3 axis"),
         ),
-        default=True,
+        default='1'
     )
     ui_subdiv = IntProperty(
         name="Subdivide",
@@ -56,10 +57,9 @@ class KINGPIN_Tools_props(PropertyGroup):
         max=256,
         default=256,
         description=(
-            "Change grid subdivision. Default: 256\n" +
-            "Kingpin plugin exported models are 256 units\n" +
-            "  so make sure its correct or you are using a\n" +
-            "  custom bounding box(fix seams)"
+            "Change grid subdivision.\n" +
+            "Default/Exported: 256 (1-bit).\n" +
+            "Note: change if imported model does not align, eg player body part."
         ),
     )
     ###########
@@ -147,7 +147,7 @@ class KINGPIN_Tools_props(PropertyGroup):
         description="Set the max image size. Width or height, scaled",
     )
     ui_uvmerge_path = StringProperty(
-        name="Path",
+        name="Save",
         description="Output image file",
         options={"HIDDEN"},
         default="tris.tga",
@@ -165,22 +165,13 @@ class KINGPIN_PT_Tool_GUI_IMPORT(Panel):
     # bl_options = {"DEFAULT_CLOSED"}  # {'HEADER_LAYOUT_EXPAND'}
 
     def draw(self, context):
-        user_prefs = kpc.get_addon_preferences()
-        if user_prefs and user_prefs.pref_kp_import_button_use_dialog:
-            layout = self.layout
-            row = layout.row()
-            row.alignment = "CENTER"
-            row.operator("kp.import_model_dialog")
-        else:
-            draw_import(self, context)
-            layout = self.layout
-            col = layout.column(align=True)
-            row = col.row()
-            row.alignment = "CENTER"
-            row.operator("kp.import_model_button")
+        layout = self.layout
+        row = layout.row()
+        row.alignment = "CENTER"
+        row.operator("kp.import_model_dialog", icon="IMPORT")
 
 
-# -=| GUI |=- #1 Export
+# -=| GUI |=- #2 Export
 class KINGPIN_PT_Tool_GUI_EXPORT(Panel):  #, AddonPreferences):  # KP_Preferences):
     bl_space_type = "VIEW_3D"
     bl_region_type = kpc.set_ui_panel_string()
@@ -188,47 +179,41 @@ class KINGPIN_PT_Tool_GUI_EXPORT(Panel):  #, AddonPreferences):  # KP_Preference
     bl_label = "Export"
     bl_options = {"DEFAULT_CLOSED"}  # {'HEADER_LAYOUT_EXPAND'}
 
-    # @classmethod
-    # def poll(cls, context):
-    #     return context.scene is not None  # Ensure there is a scene context
-
-    # def invoke(self, context, event):
-    #     """ pre fill from timeline """
-    #     kp_export_ = context.window_manager.kp_export_
-    #     kp_export_.ui_opt_fr_start = context.scene.frame_start
-    #     kp_export_.ui_opt_fr_end = context.scene.frame_end
-    #     return {'RUNNING_MODAL'}
-
     def draw(self, context):
         user_prefs = kpc.get_addon_preferences()
         if user_prefs and user_prefs.pref_kp_export_button_use_dialog:
             layout = self.layout
             row = layout.row()
             row.alignment = "CENTER"
-            row.operator("kp.export_model_dialog")
+            row.operator("kp.export_model_dialog", icon="EXPORT")
         else:
-            draw_export(self, context)
-            #
+            # common to toolpanel/export-dialog
+            draw_export(self, context, True)
+
+            # toolbar paths
             kp_export_ = context.window_manager.kp_export_
             layout = self.layout
+            # grouped box
             box3 = layout.box()
-            row = box3.column()
-            row.prop(kp_export_, "ui_opt_model_ext")
+
+            # file extension. buttons
+            # row1 = box3.row()
+            col = box3.column_flow(columns=1, align=True)
+            row = col.row(align=True)
+            row.prop(kp_export_, "ui_opt_model_ext", expand=True)
 
             # file name
-            row = box3.row(align=True)
+            row = col.row(align=True)
             col1 = row.column()
             col1.alignment = "EXPAND"
             col1.prop(kp_export_, "ui_opt_export_name")
-            col1.enabled = not (kp_export_.ui_opt_is_player and kp_export_.ui_opt_animated)
+            col1.enabled = kp_export_.ui_opt_export_mode == "EXP_MERGED" # not object mode
             col2 = row.column()
             col2.alignment = "RIGHT"
-            col2.operator(
-                "kp.export_button_file", translate=False, icon="IMPORT"
-            )
+            col2.operator( "kp.export_button_file", translate=False, icon="IMPORT")
 
             # folder string
-            row = box3.row(align=True)
+            row = col.row(align=True)
             col1 = row.column()
             col1.alignment = "EXPAND"
             col1.enabled = False  # input box (no edit)
@@ -243,10 +228,10 @@ class KINGPIN_PT_Tool_GUI_EXPORT(Panel):  #, AddonPreferences):  # KP_Preference
             # export button
             row = layout.row()
             row.alignment = "CENTER"
-            row.operator("kp.export_button_model")
+            row.operator("kp.export_button_model", icon="EXPORT")
 
 
-# -=| GUI |=- #1 Grid
+# -=| GUI |=- #3 Grid
 class KINGPIN_PT_Tool_GUI_GRID(Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = kpc.set_ui_panel_string()
@@ -258,19 +243,21 @@ class KINGPIN_PT_Tool_GUI_GRID(Panel):
         kp_tool_ = context.window_manager.kp_tool_
 
         layout = self.layout
-        box1 = layout.box()
-        row = box1.column_flow(columns=1, align=True)
-        row.prop(kp_tool_, "ui_use_solid")
-        row.prop(kp_tool_, "ui_floor_cube")
-        row.prop(kp_tool_, "ui_subdiv")
+        box = layout.box()
+        # row = box1.column_flow(columns=1, align=True)
+        box.prop(kp_tool_, "ui_use_solid")
+
+        row = box.row()
+        row.prop(kp_tool_, "ui_floor_cube", expand=True)
+        box.prop(kp_tool_, "ui_subdiv")
         # button
         row = layout.row()
         row.alignment = "CENTER"
-        row.operator("kp.ui_btn_grid")
+        row.operator("kp.ui_btn_grid", icon="MOD_LATTICE") #GRID, MESH_GRID, MOD_LATTICE
 
 
-# -=| GUI |=- #2 Mesh deform
-class KINGPIN_PT_Tool_GUI_DEFORM(Panel):
+# -=| GUI |=- #5 Mesh deform/retarget
+class KINGPIN_PT_Tool_GUI_RETARGET(Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = kpc.set_ui_panel_string()
     bl_category = "Kingpin"
@@ -295,13 +282,13 @@ class KINGPIN_PT_Tool_GUI_DEFORM(Panel):
             row.prop(kp_tool, "ui_drv_obj_picker")
         # buttons
         row = layout.row()
-        row.operator("kp.ui_btn_driver")
+        row.operator("kp.ui_btn_driver", icon="DRIVER")
         row = layout.row()
         row.alignment = "CENTER"
-        row.operator("kp.ui_btn_driver_clear")
+        row.operator("kp.ui_btn_driver_clear", icon="X")
 
 
-# -=| GUI |=- #3 Smooth md2 compresion
+# -=| GUI |=- #4 Smooth md2 compresion
 class KINGPIN_PT_Tool_GUI_SMOOTH(Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = kpc.set_ui_panel_string()
@@ -322,10 +309,10 @@ class KINGPIN_PT_Tool_GUI_SMOOTH(Panel):
         # button
         row = layout.row()
         row.alignment = "CENTER"
-        row.operator("kp.ui_btn_smooth")
+        row.operator("kp.ui_btn_smooth",icon="SMOOTHCURVE") # NORMALIZE_FCURVES
 
 
-# -=| GUI |=- #4 UV Merger
+# -=| GUI |=- #6 UV Merger
 class KINGPIN_PT_Tool_GUI_UV_MERGE(Panel):
     """ merge multiple materials into 1 image, fix uv"""
     bl_space_type = "VIEW_3D"
@@ -338,27 +325,23 @@ class KINGPIN_PT_Tool_GUI_UV_MERGE(Panel):
         kp_tool = context.window_manager.kp_tool_
         layout = self.layout
         box = layout.box()
-        row = box.column_flow(columns=1, align=True)
-        # row.prop(kp_tool, "ui_uvmerge_max")
-        # row.prop(kp_tool, "ui_uvmerge_path")
+        box.label(text="Texture Atlas File")
 
-        # folder string
+        # file name
         row = box.row(align=True)
         col1 = row.column()
         col1.alignment = "EXPAND"
         col1.enabled = False  # input box (no edit)
         col1.prop(kp_tool, "ui_uvmerge_path")
-        # folder button
+        # file button
         col2 = row.column()
         col2.alignment = "RIGHT"
-        col2.operator(
-            "kp.uvmerge_file_picker", translate=False, icon="FILE_FOLDER", text=""
-        )
+        col2.operator("kp.uvmerge_file_picker", translate=False, icon="FILE_FOLDER", text="")
 
         # button
         row = layout.row()
         row.alignment = "CENTER"
-        row.operator("kp.ui_btn_uvmerge")
+        row.operator("kp.ui_btn_uvmerge", icon="TEXTURE")
 
 
 # button add vertex keyframes animation
@@ -444,16 +427,12 @@ class KINGPIN_UI_BUTTON_DRIVER(Operator):
         for obj in src_Objs:
             ob_bind_pos.extend(kpc.getMeshWorldCords_fn(obj, depsgraph))
         kdTree_src = get_KdTree_for_vArray(ob_bind_pos) #flat positions
-        # source mesh T-Pose. store flat
-        # objData_src= kpc.getMeshArrays_fn(ob_bind_pos)
-        # kdTree = get_KdTree_for_vArray(objData_srcvs[0][kpc.IDX_XYZ_V])
 
         # dest mesh T-Pose
         # get world vertex pos, so we can bind to our target
         ob_bind_pos = []
         for obj in sel_objs:
             ob_bind_pos.append(kpc.getMeshWorldCords_fn(obj, depsgraph, False))
-
 
         ###############################
         # get vertex bind array indices
@@ -533,7 +512,7 @@ class KINGPIN_UI_BUTTON_DRIVER(Operator):
 # button grid
 class KINGPIN_UI_BUTTON_GRID(Operator):
     bl_idname = "kp.ui_btn_grid"
-    bl_label = "Add Grid"
+    bl_label = "Show 1-bit Grid"
     bl_options = {'REGISTER'}
     bl_description = (
         "Adds a bounding box grid set to 256 units.\n"
@@ -546,60 +525,53 @@ class KINGPIN_UI_BUTTON_GRID(Operator):
     #     return (context.selected_objects and context.selected_objects[0].type in {'MESH'})
 
     def execute(self, context):
-        names = ["kp_grid_x", "kp_grid_y", "kp_grid_z"]
+        grid_names = ["kp_grid_x", "kp_grid_y", "kp_grid_z"]
         objMin = [99999.0] * 3
         objMax = [-99999.0] * 3
         key_prop = context.window_manager.kp_tool_
-        devis = key_prop.ui_subdiv
-
-        # set mode object
-        if not bpy.context.mode == "OBJECT":
-            bpy.ops.object.mode_set(mode="OBJECT")  # , toggle=False)
-
-        # remove grid from selection
-        # active
-        # context.selected_objects:  # bpy.data.objects:
-        for obj in kpc.get_objects_selected(context):  # .selected:
-            for i in range(3):
-                ln = len(names[i])
-                if obj.name[:ln] == names[i]:
-                    kpc.set_select_state(obj, False)
+        grid_div = key_prop.ui_subdiv
 
         # get selected array
         edit_mode, act_obj, sel_objs = kpc.set_mode_get_obj(context)
-        # check array length
-        if len(sel_objs) < 1:  # not context.selected_objects:
-            print("Nothing selected")
-            return {"FINISHED"}
 
         # deselect any objects
-        # .selected:  # bpy.data.objects:
         for obj in kpc.get_objects_selected(context):
             kpc.set_select_state(obj, False)
+        if act_obj:
+            kpc.set_select_state(act_obj, False)
+
+        # remove grid from selection
+        sel_objs = [obj for obj in sel_objs if not obj.name[:9] in grid_names]
+
+        ############################
+        # find existing grid. delete
+        obj_all = kpc.get_objects_all(bpy.context)
+        for obj in obj_all:
+            ob_name = obj.name[:9]
+            if ob_name in grid_names:
+                bpy.data.objects.remove(obj)  # todo 2.79?
+
+        # check array length
+        if len(sel_objs) < 1:  # not context.selected_objects:
+            # TODO use all scene objects?
+            print("Nothing selected")
+            self.report({"INFO"}, "Nothing selected")
+            return {"FINISHED"}
 
         ###############################
         # get bounding box in selection
         vX = []
         vY = []
         vZ = []
+        # todo cleanep, numpy
         ret_objs = kpc.getMeshArrays_fn(sel_objs)
         for obj in ret_objs:
-            for v in obj[kpc.IDX_XYZ_V]:
+            for v in obj.md_xyz_vert:
                 vX.append(v[0])
                 vY.append(v[1])
                 vZ.append(v[2])
         objMin[0], objMin[1], objMin[2] = min(vX), min(vY), min(vZ)
         objMax[0], objMax[1], objMax[2] = max(vX), max(vY), max(vZ)
-
-        ############################
-        # find existing grid. delete
-        obj_all = kpc.get_objects_all(bpy.context)
-        for obj in obj_all:
-            ob_name = obj.name[:len(names[0])]
-            for i in range(3):
-                if ob_name == names[i]:
-                    bpy.data.objects.remove(obj)  # todo 2.79?
-                    break
 
         ################################
         # build bounds/position/rotation
@@ -625,22 +597,21 @@ class KINGPIN_UI_BUTTON_GRID(Operator):
             [rot, 0, 0],  # y
             [0, 0, 0],  # z
         ]
-        # bpy.context.view_layer.objects.selected
-        # bpy.context.view_layer.objects.active  #context.active_object
+
         ####################
         # generate new grid/s
         # subdivision in B3.0 uses face count
-        divFix = devis if kpc.check_version(3, 0, 0) < 0 else (devis - 1)
-        rng = 1 if key_prop.ui_floor_cube else 3  # skip X+Y grid
+        grid_div = grid_div if kpc.check_version(3, 0, 0) < 0 else (grid_div - 1)
+        rng = 1 if key_prop.ui_floor_cube == "1" else 3  # skip X+Y grid
         for i in range(rng):
             bpy.ops.mesh.primitive_grid_add(
-                x_subdivisions=divFix, y_subdivisions=divFix
+                x_subdivisions=grid_div, y_subdivisions=grid_div
             )  # size=width[i]) B2.8
             obj = kpc.get_objects_active(context)
             if not obj or obj.name[0:4] != "Grid":
                 raise ValueError("Could not select grid")
             idx = (i + 2) % 3
-            obj.name = names[idx]  # z first
+            obj.name = grid_names[idx]  # z first
             obj.dimensions = widthXYZ[idx]
             obj.location = midXYZ[idx]
             obj.rotation_mode = "XYZ"
@@ -658,16 +629,19 @@ class KINGPIN_UI_BUTTON_GRID(Operator):
             kpc.set_select_state(obj, True)
 
         # return to edit mode
+        for obj in sel_objs:  # select inital objects
+            kpc.set_select_state(obj, True)
         if act_obj:  # TODO fix invalid state
             kpc.set_objects_active(bpy.context, act_obj)
             bpy.ops.object.mode_set(mode=edit_mode)
 
+        self.report({"INFO"}, "Grid Created")
         return {"FINISHED"}
 
 # button grid
 class KINGPIN_UI_BUTTON_UVMERGE(Operator):
     bl_idname = "kp.ui_btn_uvmerge"
-    bl_label = "Merge UV"
+    bl_label = "Merge UV/Image" #Merge into to 1 UV" # texture atlasing
     bl_options = {'REGISTER', 'UNDO'}
     bl_description = (
         "Merge all materials assigned to the mesh and moves UV to match texture.\n"
@@ -1165,7 +1139,7 @@ classes = (
     KINGPIN_PT_Tool_GUI_EXPORT,
     KINGPIN_PT_Tool_GUI_GRID,
     KINGPIN_PT_Tool_GUI_SMOOTH,
-    KINGPIN_PT_Tool_GUI_DEFORM,
+    KINGPIN_PT_Tool_GUI_RETARGET,
     KINGPIN_PT_Tool_GUI_UV_MERGE,
 )
 

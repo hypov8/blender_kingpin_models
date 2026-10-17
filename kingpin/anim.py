@@ -26,16 +26,6 @@ from bpy.props import (
 )
 from bpy.app.handlers import persistent
 from mathutils import Vector
-# from math import isclose
-from . common_kp import (
-    set_ui_panel_string,
-    set_select_state,
-    getMeshArrays_fn,
-    set_mode_get_obj,
-    is_selected_mesh,
-    get_mesh_objects,
-    IDX_XYZ_V
-)
 from . import common_kp as kpc
 
 
@@ -180,8 +170,8 @@ def delete_key(data, key):
 def deleteKey_kp(context, allVerts=False):
     # kp_tool_anim = context.window_manager.kp_anim_
 
-    edit_mode, _, sel_obj = set_mode_get_obj(context)
-    sel_obj = get_mesh_objects(sel_obj)
+    edit_mode, _, sel_obj = kpc.set_mode_get_obj(context)
+    sel_obj = kpc.get_mesh_objects(sel_obj)
 
     for obj in sel_obj:
         data = obj.data
@@ -208,16 +198,16 @@ def deleteKey_kp(context, allVerts=False):
 def delete_all_anims(self, context):
     """ delete all animations """
 
-    edit_mode, _, sel_objs = set_mode_get_obj(context)
+    edit_mode, _, sel_objs = kpc.set_mode_get_obj(context)
     # frame = bpy.context.scene.frame_current
 
-    if not is_selected_mesh(self, sel_objs):
+    if not kpc.is_selected_mesh(self, sel_objs):
         return  # {"FINISHED"}
 
     for obj in sel_objs:
         if not obj.data:
             continue
-        set_select_state(obj, False)  # select object
+        kpc.set_select_state(obj, False)  # select object
 
         # get vertex pos at current frame
         depsgraph = kpc.getDepsgraph()
@@ -251,7 +241,7 @@ def delete_all_anims(self, context):
     for obj in sel_objs:
         if not obj.data:
             continue
-        set_select_state(obj, True)
+        kpc.set_select_state(obj, True)
 
     # return to edit mode if neded
     bpy.ops.object.mode_set(mode=edit_mode)
@@ -263,15 +253,11 @@ def delete_all_anims(self, context):
 # GUI (Panel)
 class KINGPIN_PT_animall_KP(Panel):
     bl_space_type = "VIEW_3D"
-    bl_region_type = set_ui_panel_string()
+    bl_region_type = kpc.set_ui_panel_string()
     bl_category = "Kingpin"
     bl_label = "KEY FRAMES"
     bl_options = {"DEFAULT_CLOSED"}
     # bl_options = {"HEADER_LAYOUT_EXPAND"}
-
-    # @classmethod
-    # def poll(self, context):
-    #     return context.active_object and context.active_object.type in {"MESH"}
 
     def draw(self, context):
         """ _ """
@@ -315,8 +301,6 @@ class KINGPIN_PT_animall_KP(Panel):
 
         # frame change box. fix for vertex animation bug
         box3 = layout.box()
-        # row = box3.row(align=True)  # row 1. mode
-        # row.alignment = "LEFT"
         if is_vertex:
             box3.row().label(text="Vertex Mode", icon="VERTEXSEL")
         else:
@@ -449,8 +433,8 @@ def insertKey_kp(context, allVerts=False):
     kf_type_in = animProp_KP.key_keytype_in
     kf_type_out = animProp_KP.key_keytype_out
 
-    edit_mode, _, sel_objs = set_mode_get_obj(context)
-    sel_objs = get_mesh_objects(sel_objs)
+    edit_mode, _, sel_objs = kpc.set_mode_get_obj(context)
+    sel_objs = kpc.get_mesh_objects(sel_objs)
 
 
     for obj in sel_objs:  # [o for o in objects if o.type in {"MESH"}]:

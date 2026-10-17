@@ -407,10 +407,11 @@ class Kingpin_Model_Reader:
                     node_tex.color_space = "NONE"  # set node/3d view to non sRGB
 
                 # try to load tga/pcx image
-                skinImg = load_kingpin_image(mdxPath=skin,
-                                             filePath=self.filePath,
-                                             check_dupe=self.ui_opt_dupe_mat,
-                                             store_image=self.ui_opt_store_pcx)  # KP_Util_Import
+                skinImg = load_kingpin_image(
+                    mdxPath=skin,
+                    filePath=self.filePath,
+                    check_dupe=self.ui_opt_dupe_mat,
+                    store_image=self.ui_opt_store_pcx)  # KP_Util_Import
                 if skinImg is None:
                     skinImg = bpy.data.images.new(
                         skin, self.hdr.skinWidth, self.hdr.skinHeight)
@@ -436,33 +437,23 @@ class Kingpin_Model_Reader:
         self.start_time = kpc.printStart_fn()  # reset timmer
         prefix = "Generating UV"
         kpc.printProgress_fn(0, self.hdr.numFrames, prefix)  # print progress
-
+        # new uv
         uv_type, uv_layer = kpc.get_uv_data_new(
             md2_mesh, uv_name="UVMap_0")  # v1.2.2
-        image = None  # asign first image. TODO: cleanup
-        for im in image_array:
-            if im is not None:
-                image = im
-                break
-        if uv_type == 1:  # B2.79 v1.2.2
-            blen_uvs = md2_mesh.uv_layers[0]
-            for i, poly in enumerate(md2_mesh.polygons):
-                uv_face = self.tri_idc_uv[i]
-                v1, v2, v3 = uv_face
-                blen_uvs.data[poly.loop_start + 0].uv = self.uv_cords[v1]
-                blen_uvs.data[poly.loop_start + 1].uv = self.uv_cords[v2]
-                blen_uvs.data[poly.loop_start + 2].uv = self.uv_cords[v3]
-                poly.use_smooth = True  # smooth all faces
-                # set face texture
-                md2_mesh.uv_textures[0].data[i].image = image
-        elif uv_type == 2:  # B2.8 v1.2.2
-            for i, poly in enumerate(md2_mesh.polygons):
-                poly.use_smooth = True
-                if i != poly.index:
-                    print("--== i:%i f:%i ==--" % (i, poly.index))
-                uv_x = self.tri_idc_uv[i]
-                for uvid, loop_idx in enumerate(poly.loop_indices):
-                    uv_layer.data[loop_idx].uv = self.uv_cords[uv_x[uvid]][:]
+
+        image = next((im for im in image_array if im is not None), None)
+
+        # expand uv data to triangles
+        for f, poly in enumerate(md2_mesh.polygons):
+            poly.use_smooth = True  # smooth all faces
+            uv_face = self.tri_idc_uv[f] # imported uv indices
+            for j in range(3):
+                uv_idx = f * 3 + j
+                v_idx = uv_face[j]
+                uv_co = self.uv_cords[v_idx][:] #imported uv cords
+                uv_layer.data[uv_idx].uv = uv_co
+            if uv_type == 0:  # B2.79 v1.2.2
+                uv_layer.data[f].image = image
 
         kpc.printDone_fn(self.start_time, prefix)
         # Finish uv data
@@ -472,11 +463,11 @@ class Kingpin_Model_Reader:
         # validate/update model
         if self.ui_opt_mesh_cleanup:
             if md2_mesh.validate(verbose=True, clean_customdata=False):  # print errors
+                self.valid = 2
                 print("--------\n" +
                       "WARNING: Found invalid mesh data.\n"
                       "  Disable \"Mesh Cleanup\" if required\n" +
                       "--------\n")
-                self.valid = 2
 
         kpc.set_auto_smooth(md2_mesh, 180)
         md2_mesh.update()
@@ -635,7 +626,7 @@ class Kingpin_Model_Reader:
         # set frame back to old position
         current_scene.frame_set(int_frame)
 
-        # add custom data
+        # add custom data. for mesh smooth
         obj.data[kpc.DATA_V_BYTE] = np.concatenate(self.store_fr_v_pos).ravel().tolist()
         obj.data[kpc.DATA_F_SCALE] = self.store_fr_scale
         obj.data[kpc.DATA_F_COUNT] = self.hdr.numFrames

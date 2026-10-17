@@ -118,6 +118,13 @@ v1.2.7
 v1.2.7.2
 - new method for retarget, fixes vert count bug, only gets vert pos
 - fix clear anims that have modifyers. vert count issue, as above
+- vertex normal/corner code change. get avg
+- added additional automatic exporting of objects.
+- added mdx option to generate hitbox from skins
+- removed bmesh, use tessface instead.
+- md2 grid will be deleted if nothing is selected
+- menu cleanup.
+- code cleanup.
 
 
 notes
