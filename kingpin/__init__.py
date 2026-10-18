@@ -125,6 +125,8 @@ v1.2.7.2
 - md2 grid will be deleted if nothing is selected
 - menu cleanup.
 - code cleanup.
+- added vertex modes. vertex, edge, face
+
 
 
 notes

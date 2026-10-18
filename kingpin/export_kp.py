@@ -65,15 +65,6 @@ class KINGPIN_Export_props(PropertyGroup):
         ),
         default=False
     )
-    ui_opt_cust_vn = BoolProperty(
-        name="Corner Normals",
-        description=(
-            "Primary use: fixing player seams with 'Data Transfer' modifier.\n" +
-            "Not needed for: normal smooth/flat shading, or Edge Split modifier.\n" +
-            "Note: this may generate bad normals on hard edges with 1 vertex"
-        ),
-        default=False
-    )
     ui_opt_is_player = BoolProperty(
         name="Player Model", # Seam Fix (Player etc.)",
         description=(
@@ -187,7 +178,26 @@ class KINGPIN_Export_props(PropertyGroup):
         ),
         default="EXP_MERGED"
     )
-
+    ui_opt_cust_vn_face = EnumProperty(
+        name="Normal",
+        description=(
+            "Source used to get vertex normal direction"
+        ),
+        items=(
+            ("EXP_NORM_VERT", "1.VERTEX",
+             "Use vertex normals (matches viewport smooth)"
+            ),
+            ("EXP_NORM_EDGE", "2.EDGE NORMAL",
+             "Use edge normals (for custom normals).\n" +
+             "eg. Data Transfer to fix player seam's.\n" +
+             "Note: normal is an average of all shared edges"
+            ),
+            ("EXP_NORM_FACE", "3.FACE NORMAL",
+             "Use face weighted normals (use for quad mesh)"
+            ),
+        ),
+        default="EXP_NORM_VERT"
+    )
 
 
 class KINGPIN_Export_Button(Operator, kpc.KINGPIN_FileSelect_md2_Params):
@@ -272,10 +282,15 @@ def draw_export(self, context, is_tool_panel):
     layout = self.layout
 
     # skin chooser box
-    col = layout.column_flow(columns=1, align=True)
-    col.prop(ui_export_, "ui_opt_tex_name")  # testure source (dropdown)
-    col.prop(ui_export_, "ui_opt_export_mode")
-    col.prop(ui_export_, "ui_opt_export_mdx_obj")
+    col = layout.column_flow(columns=2, align=True)
+    col.label(text="Skin Name")
+    col.label(text="Export Modes")
+    col.label(text="Vertex Normal")
+    col.label(text="MDX Hitbox")
+    col.prop(ui_export_, "ui_opt_tex_name", text="")
+    col.prop(ui_export_, "ui_opt_export_mode", text="")
+    col.prop(ui_export_, "ui_opt_cust_vn_face", text="")
+    col.prop(ui_export_, "ui_opt_export_mdx_obj", text="")
 
     # animation box
     box = layout.box()
@@ -285,10 +300,11 @@ def draw_export(self, context, is_tool_panel):
     sub.enabled = ui_export_.ui_opt_animated
     sub.prop(ui_export_, "ui_opt_fr_start")      # frame start number
     sub.prop(ui_export_, "ui_opt_fr_end")        # frame end number
+
     # advanced opt
-    col = box.column_flow(columns=1, align=True)
-    col.prop(ui_export_, "ui_opt_cust_vn")
-    col.prop(ui_export_, "ui_opt_is_hd")    # HD version
+    split= box.split()
+    split.label(text="")
+    split.prop(ui_export_, "ui_opt_is_hd") #, icon="MOD_DECIM")
 
 
 def execute_export(self, context):

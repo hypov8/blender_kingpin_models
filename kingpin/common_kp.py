@@ -449,7 +449,14 @@ class export_cfg:
         self.ui_opt_fr_end = ui_export_.ui_opt_fr_end
         self.ui_opt_apply_modify = True  # ui_export_.ui_opt_apply_modify
         self.ui_opt_is_hd = ui_export_.ui_opt_is_hd
-        self.ui_opt_cust_vn = ui_export_.ui_opt_cust_vn
+
+        # vertex normal
+        self.ui_opt_cust_vn = 0 # ui_export_.ui_opt_cust_vn
+        vn_mode = ui_export_.ui_opt_cust_vn_face
+        if vn_mode == "EXP_NORM_EDGE":
+            self.ui_opt_cust_vn = 1
+        elif vn_mode == "EXP_NORM_FACE":
+            self.ui_opt_cust_vn = 2
 
         # obj/hitbox mode. use dropdown
         self.ui_opt_mat_hitbox = False  # UI_OBJ_SINGLE
@@ -1298,7 +1305,6 @@ def getVertexNormalsFromMesh_faceWeight(me):
     """
     used to keep polygon weight(1 face) to weight normal
     better than trianglated, where 2 faces could add edge to normal.
-    TODO add as option?
     """
     me_verts = me.vertices
     vert_count = len(me_verts)
@@ -1312,7 +1318,7 @@ def getVertexNormalsFromMesh_faceWeight(me):
     return accum_normals
 
 
-def getVertexNormalsFromMesh(me, custom_vn=False):
+def getVertexNormalsFromMesh(me, custom_vn=0):
     """
     get local cords of vetex normals
 
@@ -1325,6 +1331,9 @@ def getVertexNormalsFromMesh(me, custom_vn=False):
 
     if not custom_vn:
         return [list(v.normal) for v in me_verts]
+
+    if custom_vn == 2:
+        return getVertexNormalsFromMesh_faceWeight(me)
 
     ret_normals = [Vector((0.0, 0.0, 0.0)) for _ in range(vert_count)]
     has_custom = False
@@ -1483,7 +1492,7 @@ def getMeshArrays_fn(obj_group=None,
                      apply_modifyer=True,
                      custom_vn=False,
                      global_cords=True):
-    """Return collapsed mesh data at current frame.
+    """ Return collapsed mesh data at current frame.
 
     :param obj_group: The object data to load.
     :type object:     object array.
