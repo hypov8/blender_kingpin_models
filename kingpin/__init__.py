@@ -126,6 +126,7 @@ v1.2.7.2
 - menu cleanup.
 - code cleanup.
 - added vertex modes. vertex, edge, face
+- updated normal calculation, to_mesh() is inconsistent across blender versions
 
 
 

@@ -12,7 +12,7 @@ import bpy
 import struct
 from timeit import default_timer as timer
 # import bmesh
-from mathutils import Vector
+from mathutils import Vector, Matrix
 from collections import namedtuple
 from math import exp, radians
 from bpy.types import PropertyGroup
@@ -1432,16 +1432,19 @@ def isMatrix_identity(obj):
     Check if matrix is identity or empty safely across 2.79 up to 4.x
     """
     mw = obj.matrix_world
-    # Standard identity check: diagonals are 1.0, everything else is 0.0
-    if abs(mw[0][0]-1) + abs(mw[1][1]-1) + abs(mw[2][2]-1) + abs(mw[3][3]-1) < 0.0001:
-        return True
-    return False
+    identity = Matrix.Identity(4)
+
+    for row in range(4):
+        for col in range(4):
+            if abs(mw[row][col] - identity[row][col]) > 0.0001:
+                return False
+    return True
 
 
 def transformMesh(obj, me, global_cords):
     """ get vertex pos in global cords """
     if not global_cords or isMatrix_identity(obj):
-        return
+        return False
 
     mw = obj.matrix_world
     me.transform(mw)
@@ -1456,20 +1459,15 @@ def transformMesh(obj, me, global_cords):
     if det < 0.0:
         me.flip_normals()
         print("Note: object transform is negative, flipping face normals")
+    return True
     # done transformMesh()
     # #####################
 
 
-def transformNormals(obj, vn_data, global_cords):
-
-    if global_cords and not isMatrix_identity(obj):
-        return vn_data # Safely return raw data; they are already in world space!
-
-    # Fallback/Skip condition if no transformation happened at all
-    if not global_cords or isMatrix_identity(obj):
-        return vn_data
-
+def transformNormals(obj, vn_data):
+    """ Transform normals to world space """
     mat = obj.matrix_world.inverted().transposed().to_3x3()
+
     if check_version(2, 80, 0) >= 0:
         return [list((mat @ Vector(n)).normalized()) for n in vn_data]
     # B2.79
@@ -1574,7 +1572,7 @@ def getMeshArrays_fn(obj_group=None,
         tmp_XYZ_vert = [v.co[:] for v in me_verts]
 
         # --- Vertex normals ---
-        tmp_XYZ_norm = getVertexNormalsFromMesh(me, custom_vn)
+        tmp_XYZ_norm = [] #getVertexNormalsFromMesh(me, custom_vn)
 
         # --- face indices ---
         tmp_idc_vert, uvs, tmp_face_matid = get_triangle_data(me, faceuv)
@@ -1629,11 +1627,14 @@ def getMeshArrays_fn(obj_group=None,
                 if not faceuv:
                     me.uv_layers.new()  # add uv map
                     faceuv = True
+
             computeTriangleData(me)
-            transformMesh(obj, me, global_cords)
+            local_normals = getVertexNormalsFromMesh(me, custom_vn)
+            is_transformed = transformMesh(obj, me, global_cords)
             m_data = fillMeshArrays(me, faceuv, custom_vn)
-            normals = transformNormals(obj, m_data.md_xyz_norm, global_cords)
-            m_data = m_data._replace(md_xyz_norm=normals) # repack
+            if is_transformed:
+                normals = transformNormals(obj, local_normals)
+                m_data = m_data._replace(md_xyz_norm=normals) # repack
             ret_ob_data.append(m_data)
             # clean up
             depMesh.to_mesh_clear()
@@ -1649,11 +1650,14 @@ def getMeshArrays_fn(obj_group=None,
                 if not faceuv:
                     me.uv_textures.new()  # add uv map
                     faceuv = True
+
             computeTriangleData(me)
-            transformMesh(obj, me, global_cords)
+            local_normals = getVertexNormalsFromMesh(me, custom_vn)
+            is_transformed = transformMesh(obj, me, global_cords)
             m_data = fillMeshArrays(me, faceuv, custom_vn)
-            normals = transformNormals(obj, m_data.md_xyz_norm, global_cords)
-            m_data = m_data._replace(md_xyz_norm=normals) # repack
+            if is_transformed:
+                normals = transformNormals(obj, local_normals)
+                m_data = m_data._replace(md_xyz_norm=normals) # repack
             ret_ob_data.append(m_data)
             # clean up
             bpy.data.meshes.remove(me)
