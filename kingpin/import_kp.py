@@ -101,6 +101,15 @@ class KINGPIN_Import_props(PropertyGroup):
         ),
         default=False,
     )
+    ui_opt_hitbox = BoolProperty(
+        name="MDX obj to mat",
+        description=(
+            "Imports each hitbox as an assigned material.\n"
+            "hitbox01 == material01. etc.\n" +
+            "Note: materials will be added if list is to short"
+        ),
+        default=False,
+    )
 
 
 class KINGPIN_Import_Button(Operator, kpc.KINGPIN_FileSelect_md2_Params):
@@ -142,6 +151,7 @@ def draw_import(self, context):
     row.prop(ui_import_, "ui_opt_store_pcx")
     row.prop(ui_import_, "ui_opt_mesh_cleanup")
     row.prop(ui_import_, "ui_opt_weld_verts")
+    row.prop(ui_import_, "ui_opt_hitbox")
 
     # animation options
     box2 = layout.box()
@@ -225,7 +235,8 @@ class Kingpin_Model_Reader:
             ui_opt_dupe_mat,
             ui_opt_mesh_cleanup,
             ui_opt_weld_verts,
-            ui_opt_store_pcx):
+            ui_opt_store_pcx,
+            ui_opt_hitbox):
         """ init """
         # md2.ui_opt_sk_types = ui_import_.ui_opt_sk_types
 
@@ -239,6 +250,7 @@ class Kingpin_Model_Reader:
         self.ui_opt_weld_verts = ui_opt_weld_verts
         # self.ui_opt_sk_types = ui_opt_sk_types
         self.ui_opt_store_pcx = ui_opt_store_pcx
+        self.ui_opt_hitbox = ui_opt_hitbox
 
         self.start_time = 0
         self.isHDmodel = False
@@ -254,7 +266,7 @@ class Kingpin_Model_Reader:
         self.tri_idc_vt = []  # store triangle vertex index (idx1, idx2, idx3)
         self.tri_idc_uv = []  # store triangles UV index (idx1, idx2, idx3)
         self.tri_mdx_id = []  # mdx object id. for spliting mesh into groups
-        self.uv_cords = []  # UV float cordanates (X,Y)
+        self.uv_cords = []    # UV float cordanates (X,Y)
         # frames data
         self.fr_v_pos = []  # vertex position (X,Y,Z)
         self.fr_v_nrm = []  # vertex normal
@@ -347,6 +359,13 @@ class Kingpin_Model_Reader:
 
         # ##########
         # skins data
+        def skin_find_existing_mat(skinName):
+            for mat in bpy.data.materials:
+                if mat.name == skinName:
+                    return mat
+            return None
+
+
         image_array = []
         print_skin = "Skins: 0\n========\n"
         if self.hdr.numSkins > 0:
@@ -362,13 +381,9 @@ class Kingpin_Model_Reader:
                 prefix_skin = str("%s%s" % (prefix_skin, skin))
 
                 if self.ui_opt_dupe_mat:  # use old material if it exists
-                    foundMat = False
-                    for mat in bpy.data.materials:
-                        if mat.name == skin:
-                            md2_mesh.materials.append(mat)
-                            foundMat = True
-                            break
-                    if foundMat:
+                    mat = skin_find_existing_mat(skin)
+                    if mat:
+                        md2_mesh.materials.append(mat)
                         prefix_skin = str(
                             "%s  Existing material\n" % prefix_skin)
                         continue
@@ -431,6 +446,22 @@ class Kingpin_Model_Reader:
             # Materials Done
             print_skin += prefix_skin  # + "========"
             kpc.printDone_fn(self.start_time, "Generating Materials")
+
+        # ###############
+        # hitbox to skins
+        if self.isMdx and self.ui_opt_hitbox:
+            num_mat = len(md2_mesh.materials)
+            for i in range(num_mat, self.hdr.numSubObjects):
+                mat = skin_find_existing_mat("hitbox")
+                if mat:
+                    md2_mesh.materials.append(mat)
+                else:
+                    md2_mesh.materials.append(
+                        bpy.data.materials.new("hitbox") )
+
+            face = md2_mesh.polygons
+            for i, mat in enumerate(self.tri_mdx_id):
+                face[i].material_index = mat
 
         # #######
         # uv data
@@ -914,7 +945,8 @@ def load_kp_model(context, filepath):
         ui_import_.ui_opt_dupe_mat,
         ui_import_.ui_opt_mesh_cleanup,
         ui_import_.ui_opt_weld_verts,
-        ui_import_.ui_opt_store_pcx
+        ui_import_.ui_opt_store_pcx,
+        ui_import_.ui_opt_hitbox
     )
 
     md2.read_file(filepath)

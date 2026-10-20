@@ -128,6 +128,7 @@ v1.2.7.2
 - added vertex modes. vertex, edge, face
 - updated normal calculation, to_mesh() is inconsistent across blender versions
 - re-added static mesh method. this stops the wobble in static mesh with minimal animated parts
+- added import mdx hitbox as an assigned skin/material index
 
 
 
