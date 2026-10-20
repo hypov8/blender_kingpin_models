@@ -449,6 +449,7 @@ class export_cfg:
         self.ui_opt_fr_end = ui_export_.ui_opt_fr_end
         self.ui_opt_apply_modify = True  # ui_export_.ui_opt_apply_modify
         self.ui_opt_is_hd = ui_export_.ui_opt_is_hd
+        self.ui_exp_is_static = ui_export_.ui_exp_is_static
 
         # vertex normal
         self.ui_opt_cust_vn = 0 # ui_export_.ui_opt_cust_vn
@@ -1629,12 +1630,12 @@ def getMeshArrays_fn(obj_group=None,
                     faceuv = True
 
             computeTriangleData(me)
-            local_normals = getVertexNormalsFromMesh(me, custom_vn)
+            normals = getVertexNormalsFromMesh(me, custom_vn)
             is_transformed = transformMesh(obj, me, global_cords)
             m_data = fillMeshArrays(me, faceuv, custom_vn)
             if is_transformed:
-                normals = transformNormals(obj, local_normals)
-                m_data = m_data._replace(md_xyz_norm=normals) # repack
+                normals = transformNormals(obj, normals)
+            m_data = m_data._replace(md_xyz_norm=normals) # repack
             ret_ob_data.append(m_data)
             # clean up
             depMesh.to_mesh_clear()
@@ -1652,12 +1653,12 @@ def getMeshArrays_fn(obj_group=None,
                     faceuv = True
 
             computeTriangleData(me)
-            local_normals = getVertexNormalsFromMesh(me, custom_vn)
+            normals = getVertexNormalsFromMesh(me, custom_vn)
             is_transformed = transformMesh(obj, me, global_cords)
             m_data = fillMeshArrays(me, faceuv, custom_vn)
             if is_transformed:
-                normals = transformNormals(obj, local_normals)
-                m_data = m_data._replace(md_xyz_norm=normals) # repack
+                normals = transformNormals(obj, normals)
+            m_data = m_data._replace(md_xyz_norm=normals) # repack
             ret_ob_data.append(m_data)
             # clean up
             bpy.data.meshes.remove(me)

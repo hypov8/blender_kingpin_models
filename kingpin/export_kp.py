@@ -6,7 +6,7 @@ import bpy
 import os
 import struct
 import numpy as np
-# import traceback
+import traceback
 from collections import deque, namedtuple
 # from mathutils import Vector as Vec
 from bpy.types import Operator, PropertyGroup
@@ -76,7 +76,7 @@ class KINGPIN_Export_props(PropertyGroup):
     )
     # animation group
     ui_opt_animated = BoolProperty(
-        name="Export animation",
+        name="Animated",
         description=(
             "Export all animation frames.\n" +
             "Note: Start/End frame initially comes from timeline range"
@@ -111,6 +111,13 @@ class KINGPIN_Export_props(PropertyGroup):
         description=(
             "Export all additional scene objects. Using mesh names.\n" +
            " Note: names truncated to first dot(.)"),
+        default=False
+    )
+    ui_exp_is_static = BoolProperty(
+        name="Static",
+        description=(
+            "Mesh BBox is shared across all animations.\n" +
+            "Use when only part of mesh is animated. This stops the wobble in static parts"),
         default=False
     )
     # gui panel extra
@@ -295,14 +302,19 @@ def draw_export(self, context, is_tool_panel):
     # animation box
     box = layout.box()
     col = box.column_flow(columns=1, align=True)
-    col.prop(ui_export_, "ui_opt_animated")  # export animation
+    split = col.split()
+    split.prop(ui_export_, "ui_opt_animated")  # export animation
+    sub = split.row()
+    sub.enabled = ui_export_.ui_opt_animated
+    sub.prop(ui_export_, "ui_exp_is_static")
+
     sub = col.row(align=True)
     sub.enabled = ui_export_.ui_opt_animated
     sub.prop(ui_export_, "ui_opt_fr_start")      # frame start number
     sub.prop(ui_export_, "ui_opt_fr_end")        # frame end number
 
     # advanced opt
-    split= box.split()
+    split = box.split()
     split.label(text="")
     split.prop(ui_export_, "ui_opt_is_hd") #, icon="MOD_DECIM")
 
@@ -955,7 +967,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
         return names
     # end buildFrameNames_fn
 
-    def calcSharedBBox_fn(mdl, numFrames):
+    def calcSharedBBox_fn(mdl, cfg: kpc.export_cfg, numFrames):
         """ option to make bbox size across all frames the same
             this fixes vertex wobble in parts of mesh that dont move
         """
@@ -966,8 +978,6 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
         prefix = "Calculate bounds"
 
         for frame in range(numFrames):
-            bbox_min = [9999.0, 9999.0, 9999.0]
-            bbox_max = [-9999.0, -9999.0, -9999.0]
             tmp_bounds = []
             # calculate quantizer, from head+body+legs
             if mdl.isPlayer:
@@ -984,6 +994,22 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
             # add new bbox for each frame
             mdl.bbox_min.append(bbox_min)
             mdl.bbox_max.append(bbox_max)
+
+        if cfg.ui_exp_is_static:
+            # bbox_min = [9999.0, 9999.0, 9999.0]
+            # bbox_max = [-9999.0, -9999.0, -9999.0]
+            bbox = []
+            for fr in range(numFrames):
+                bbox.append(mdl.bbox_min[fr])
+                bbox.append(mdl.bbox_max[fr])
+            # numpy
+            verts = np.array(bbox)
+            bbox_min = np.min(verts, axis=0)
+            bbox_max = np.max(verts, axis=0)
+            for fr in range(numFrames):
+                mdl.bbox_min[fr] = bbox_min
+                mdl.bbox_max[fr] = bbox_max
+
         kpc.printDone_fn(start_time, prefix)  # Done.
     # end calcSharedBBox_fn
 
@@ -1167,7 +1193,7 @@ def setup_data_fn(cfg: kpc.export_cfg, export_mdls: kpc.mdl_export=None):  # con
         mdl.numFrames = numFrames
         mdl.frameNames = frameNames
         getSkins_fn(mdl, cfg)  # get texture names
-        calcSharedBBox_fn(mdl, numFrames)  # get min/max dimensions
+        calcSharedBBox_fn(mdl, cfg, numFrames)  # get min/max dimensions
         calculateVNornIndex_fn(mdl, numFrames, MD2_VN)
         get_numVerts(mdl, cfg)
         get_numTris(mdl, cfg)
@@ -1349,7 +1375,7 @@ def Export_MD2_fn(self,
     except Exception as e:
         print("Caught error exporting model")
         print(e)
-        # traceback.print_exc()
+        traceback.print_exc()
         # raise RuntimeError("Only mesh objects can be exported")
         return True
 
